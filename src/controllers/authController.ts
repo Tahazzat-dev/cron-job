@@ -2,6 +2,8 @@ import User from "../models/User";
 
 const { generateTokens, verifyToken } = require('../utils/token');
 
+const COOKIE_EXPIRY = 15 * 24 * 60 * 60 * 1000;
+
 export const registerController = async (req:any, res:any) => {
   try {
     const { name, email, password, domain } = req.body;
@@ -23,66 +25,69 @@ export const registerController = async (req:any, res:any) => {
       httpOnly: true,
       secure: true,
       sameSite: 'strict',
-      maxAge: 15 * 24 * 60 * 60 * 1000,
+      maxAge: COOKIE_EXPIRY
     });
 
-    res.json({ accessToken: tokens.accessToken, user: { name: user.name, email: user.email, role: user.role } });
+    res.json({ accessToken: tokens.accessToken, name: user.name, email: user.email, role: user.role });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:true,message: 'Server error' });
+  }
+};
+
+export const loginController = async (req:any, res:any) => {
+   try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user || !(await user.comparePassword(password))) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const tokens = generateTokens(user);
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: COOKIE_EXPIRY
+    });
+
+    res.json({ accessToken: tokens.accessToken, name: user.name, email: user.email, role: user.role });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-// export const login = async (req:Request, res:Response) => {
-//   try {
-//     const { email, password } = req.body;
+export const refreshTokenController = async (req:any, res:any) => {
+  try {
+    const token = req.cookies.refreshToken;
+    if (!token) return res.status(401).json({error:true, message: 'Unauthorized' });
 
-//     const user = await User.findOne({ email });
-//     if (!user || !(await user.matchPassword(password))) {
-//       return res.status(401).json({ message: 'Invalid credentials' });
-//     }
+    const payload = verifyToken(token, 'refresh');
 
-//     const tokens = generateTokens(user);
-//     res.cookie('refreshToken', tokens.refreshToken, {
-//       httpOnly: true,
-//       secure: true,
-//       sameSite: 'strict',
-//       maxAge: 7 * 24 * 60 * 60 * 1000,
-//     });
+    if( !payload || !payload?.id)return res.status(404).json({error:true, message: 'Invalid or expired token' });
 
-//     res.json({ accessToken: tokens.accessToken, user: { name: user.name, email: user.email, role: user.role } });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: 'Server error' });
-//   }
-// };
+    const user = await User.findById(payload.id);
 
-// export const refreshToken = async (req:Request, res:Response) => {
-//   try {
-//     const token = req.cookies.refreshToken;
-//     if (!token) return res.status(401).json({ message: 'Unauthorized' });
+    if (!user) return res.status(404).json({error:true, message: 'User not found' });
 
-//     const payload = verifyToken(token, 'refresh');
-//     const user = await User.findById(payload.id);
+    const tokens = generateTokens(user);
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: COOKIE_EXPIRY
+    });
 
-//     if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json({ accessToken: tokens.accessToken });
+  } catch (err) {
+    res.status(401).json({ message: 'Invalid refresh token' });
+  }
+};
 
-//     const tokens = generateTokens(user);
-//     res.cookie('refreshToken', tokens.refreshToken, {
-//       httpOnly: true,
-//       secure: true,
-//       sameSite: 'strict',
-//       maxAge: 7 * 24 * 60 * 60 * 1000,
-//     });
-
-//     res.json({ accessToken: tokens.accessToken });
-//   } catch (err) {
-//     res.status(401).json({ message: 'Invalid refresh token' });
-//   }
-// };
-
-// export const logout = (req:Request, res:Response) => {
-//   res.clearCookie('refreshToken', { httpOnly: true, secure: true, sameSite: 'strict' });
-//   res.status(200).json({ message: 'Logged out' });
-// };
+export const logoutController = (req:any, res:any) => {
+  res.clearCookie('refreshToken', { httpOnly: true, secure: true, sameSite: 'strict' });
+  res.status(200).json({ message: 'Logged out' });
+};
 
