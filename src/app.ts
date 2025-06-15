@@ -13,6 +13,9 @@ dotenv.config();
 // connect to database
 require('./config/db')
 
+// schedule auto cron job
+require('./jobs/autoCron.scheduler')
+
 // import { notFoundHandler, errorHandler } from './middlewares/error.middleware';
 import authRoutes from './routes/auth.routes';
 import configRoutes from './routes/config';
