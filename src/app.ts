@@ -14,7 +14,8 @@ dotenv.config();
 require('./config/db')
 
 // import { notFoundHandler, errorHandler } from './middlewares/error.middleware';
-// import authRoutes from './routes/auth.routes';
+import authRoutes from './routes/auth.routes';
+import configRoutes from './routes/config';
 // import userRoutes from './routes/user.routes';
 // Import other route modules as you create them
 
@@ -31,7 +32,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser()); 
 app.use(morgan('dev')); 
 
-// app.use('/api/auth', authRoutes);
+app.use('/api/auth', authRoutes);
+// app.use('/api/admin/', configRoutes);
 // app.use('/api/users', userRoutes);
 // app.use('/api/subscriptions', subscriptionRoutes);
 // app.use('/api/crons', cronRoutes);

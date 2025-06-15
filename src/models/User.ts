@@ -57,7 +57,7 @@ const UserSchema = new Schema<IUser>(
     subscription: {
       type: {
         type: String,
-        enum: ['silver', 'gold', 'diamond'],
+        enum: ['trial','silver', 'gold', 'diamond'],
         required: true,
         default: 'silver',
       },
