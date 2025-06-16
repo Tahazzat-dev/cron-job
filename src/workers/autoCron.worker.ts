@@ -19,6 +19,7 @@ export const autoCronWorker = new Worker(
         domain,
         status: res.status,
         responseTime: duration,
+        message:"Success"
       });
     } catch (err: any) {
       const duration = Date.now() - start;
@@ -26,7 +27,7 @@ export const autoCronWorker = new Worker(
         userId,
         domain,
         responseTime: duration,
-        error: err.message,
+        message: err.message,
       });
     }
   },

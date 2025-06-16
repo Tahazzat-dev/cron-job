@@ -7,7 +7,7 @@ const CronLogSchema = new Schema(
     domain: { type: String, required: true },
     status: { type: Number },
     responseTime: { type: Number }, // in ms
-    error: { type: String },
+    message: { type: String, require:true },
   },
   { timestamps: true }
 );

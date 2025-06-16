@@ -1,8 +1,8 @@
 // queues/autoCron.queue.ts
 import { Queue } from 'bullmq';
-import IORedis from 'ioredis';
+import getRedisInstance from '../config/redis';
 
-export const connection = new IORedis();
+const connection = getRedisInstance()
 
 export const autoCronQueue = new Queue('auto-cron-queue', {
   connection,

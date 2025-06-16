@@ -1,4 +1,6 @@
 import User from "../models/User";
+import { TDomain } from "../types/types";
+import { sanitizeDomain } from "../utils/sanitize";
 
 const { generateTokens, verifyToken } = require('../utils/token');
 
@@ -11,6 +13,12 @@ export const registerController = async (req:any, res:any) => {
         return res.status(400).json({error:true, message:"All fields are required"})
     }
 
+    const sanitizedDomain = sanitizeDomain(domain);
+
+    if(!sanitizedDomain) {
+      return res.status(400).json({error:true, message: `Invalid domain: ${domain}` });
+    }
+
     const existing = await User.findOne({ email });
     if (existing) return res.status(409).json({error:true, message: 'Email already used' });
 
@@ -18,8 +26,11 @@ export const registerController = async (req:any, res:any) => {
     const now = new Date();
     const trialEndDate = new Date(now);
     trialEndDate.setDate(now.getDate() + 2); // for 2 days free trial
-
-    const user = await User.create({ name, email, password,domain,packageExpiresAt:trialEndDate});
+    const defaultDomains:TDomain[] = [
+      {status:"enabled", url:sanitizedDomain},
+      {status:"enabled", url:sanitizedDomain},
+    ]
+    const user = await User.create({ name, email, password,defaultDomains,packageExpiresAt:trialEndDate});
     const tokens = generateTokens(user);
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,

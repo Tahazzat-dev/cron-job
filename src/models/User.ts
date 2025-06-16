@@ -1,8 +1,7 @@
 import mongoose, { Document, Schema, model, models } from 'mongoose';
 import bcrypt from 'bcrypt';
+import { SubscriptionType, TDomain, UserRole } from '../types/types';
 
-export type UserRole = 'admin' | 'user';
-export type SubscriptionType = 'silver' | 'gold' | 'diamond';
 
 interface NotificationPreferences {
   telegram: boolean;
@@ -24,13 +23,14 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: UserRole;
-  domain: string;
-  manualCronDomains: string[];
+  defaultDomains: TDomain[];
+  manualDomains?: TDomain[];
   telegramId?: string;
   telegramConnected: boolean;
   packageExpiresAt: Date;
   subscription: SubscriptionInfo;
   manualCronCount: number;
+  allowedToAddManualDomains: boolean;
   notificationPreferences: NotificationPreferences;
   twoFactorEnabled: boolean;
   failedLoginAttempts: number;
@@ -46,8 +46,23 @@ const UserSchema = new Schema<IUser>(
     password: { type: String, required: true, minlength: 8 },
     role: { type: String, enum: ['admin', 'user'], default: 'user' },
 
-    domain: { type: String, required: true, trim: true },
-    manualCronDomains: { type: [String], default: [] },
+    defaultDomains: {
+      type: [{
+        status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
+        url: { type: String, required: true, trim: true },
+      }],
+      required: true,
+      validate: [(arr:TDomain[]) => arr.length > 0, 'At least one default domain is required.']
+    },
+
+    manualDomains: {
+      type: [{
+        status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
+        url: { type: String, required: true, trim: true },
+      }],
+      required: false,
+      default: [],
+    },
 
     telegramId: { type: String },
     telegramConnected: { type: Boolean, default: false },
@@ -57,14 +72,16 @@ const UserSchema = new Schema<IUser>(
     subscription: {
       type: {
         type: String,
-        enum: ['trial','silver', 'gold', 'diamond'],
+        enum: ['trial', 'silver', 'gold', 'diamond'],
         required: true,
-        default: 'silver',
+        default: 'trial',
       },
       manualCronLimit: { type: Number, required: true, default: 5 },
     },
 
     manualCronCount: { type: Number, default: 0 },
+    allowedToAddManualDomains: { type: Boolean, default: false },
+
     notificationPreferences: {
       telegram: { type: Boolean, default: true },
       email: { type: Boolean, default: true },
@@ -84,25 +101,19 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
-
 UserSchema.index({ packageExpiresAt: 1 });
-UserSchema.index({ domain: 1 }, { unique: true });
-UserSchema.index({ manualCronDomains: 1 });
+UserSchema.index({ 'defaultDomains.url': 1 }, { unique: true, sparse: true });
+UserSchema.index({ 'manualDomains.url': 1 });
 UserSchema.index({ 'subscription.type': 1 });
 
-
-
-// Password hashing
 UserSchema.pre('save', async function (next) {
   const user = this as IUser;
   if (!user.isModified('password')) return next();
-
   const salt = await bcrypt.genSalt(10);
   user.password = await bcrypt.hash(user.password, salt);
   next();
 });
 
-// Compare password method
 UserSchema.methods.comparePassword = async function (candidate: string): Promise<boolean> {
   return bcrypt.compare(candidate, this.password);
 };
