@@ -28,7 +28,7 @@ export const registerController = async (req:any, res:any) => {
     trialEndDate.setDate(now.getDate() + 2); // for 2 days free trial
     const defaultDomains:TDomain[] = [
       {status:"enabled", url:sanitizedDomain},
-      {status:"enabled", url:sanitizedDomain},
+      // {status:"enabled", url:sanitizedDomain},
     ]
     const user = await User.create({ name, email, password,defaultDomains,packageExpiresAt:trialEndDate});
     const tokens = generateTokens(user);

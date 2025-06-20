@@ -68,10 +68,12 @@ async function scheduleAutoCrons() {
       if (combinedDomains.length === 0) continue;
 
       for (const domain of combinedDomains) {
-        await autoCronQueue.add('auto-execute', {
+        const res = await autoCronQueue.add('auto-execute', {
           userId: user._id,
           domain,
         });
+
+        // console.log("job added", res)
       }
     }
 

@@ -102,7 +102,8 @@ const UserSchema = new Schema<IUser>(
 );
 
 UserSchema.index({ packageExpiresAt: 1 });
-UserSchema.index({ 'defaultDomains.url': 1 }, { unique: true, sparse: true });
+// UserSchema.index({ 'defaultDomains.url': 1 }, { unique: true, sparse: true });
+UserSchema.index({ 'defaultDomains.url': 1 });
 UserSchema.index({ 'manualDomains.url': 1 });
 UserSchema.index({ 'subscription.type': 1 });
 
