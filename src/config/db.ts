@@ -6,7 +6,7 @@ require('dotenv').config();
 mongoose.connect(process.env.MONGO_URI, {});
 
 mongoose.connection.on('connected', () => {
-  initializeAutoScheduler()
+  // initializeAutoScheduler()
   console.log('MongoDB connected');
 });
 

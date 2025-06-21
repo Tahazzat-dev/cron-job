@@ -3,12 +3,23 @@ import validator from 'validator';
 export function sanitizeDomain(raw: string): string | null {
   if (!raw || typeof raw !== 'string') return null;
 
-  let domain = raw.trim().toLowerCase();
+  let urlString = raw.trim().toLowerCase();
 
-  // Validate domain using validator.js
-  if (!validator.isFQDN(domain, { require_tld: true })) {
-    return null;
+  // Add default protocol if missing
+  if (!/^https?:\/\//i.test(urlString)) {
+    urlString = 'https://' + urlString;
   }
 
-  return domain;
+  try {
+    const parsed = new URL(urlString);
+    const domain = parsed.hostname;
+
+    if (!validator.isFQDN(domain, { require_tld: true })) {
+      return null;
+    }
+
+    return urlString; 
+  } catch {
+    return null;
+  }
 }

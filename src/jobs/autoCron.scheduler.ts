@@ -48,11 +48,15 @@ async function scheduleAutoCrons() {
   try {
     const users = await User.find({
       packageExpiresAt: { $gte: new Date() },
+       status: 'enabled',
+       role:"user",
       $or: [
         { defaultDomains: { $elemMatch: { status: 'enabled' } } },
         { manualDomains: { $elemMatch: { status: 'enabled' } } }
       ]
     });
+
+    // console.log(users, ' user form checking')
 
     if (users.length === 0) {
       console.log(`[${new Date().toISOString()}] No eligible users for auto-cron.`);

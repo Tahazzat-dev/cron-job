@@ -1,7 +1,6 @@
-import mongoose, { Document, Schema, model, models } from 'mongoose';
+import { Document, Schema, model, models } from 'mongoose';
 import bcrypt from 'bcrypt';
 import { SubscriptionType, TDomain, UserRole } from '../types/types';
-
 
 interface NotificationPreferences {
   telegram: boolean;
@@ -22,6 +21,9 @@ export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
+  username: string;
+  mobile: number;
+  status: 'pending' | 'enabled' | 'disabled' | "deleted" | "blocked";
   role: UserRole;
   defaultDomains: TDomain[];
   manualDomains?: TDomain[];
@@ -42,24 +44,35 @@ export interface IUser extends Document {
 const UserSchema = new Schema<IUser>(
   {
     name: { type: String, required: true, minlength: 2, maxlength: 50, trim: true },
+    username: { type: String, required: true, unique: true },
+    mobile: { type: Number,required: true, unique: true, trim: true},
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true, minlength: 8 },
+    status: {
+      type: String,
+      enum: ['pending', 'enabled', 'disabled' , 'deleted', 'blocked'],
+      default: 'pending',
+    },
     role: { type: String, enum: ['admin', 'user'], default: 'user' },
 
     defaultDomains: {
-      type: [{
-        status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
-        url: { type: String, required: true, trim: true },
-      }],
+      type: [
+        {
+          status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
+          url: { type: String, required: true, trim: true },
+        },
+      ],
       required: true,
-      validate: [(arr:TDomain[]) => arr.length > 0, 'At least one default domain is required.']
+      validate: [(arr: TDomain[]) => arr.length > 0, 'At least one default domain is required.'],
     },
 
     manualDomains: {
-      type: [{
-        status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
-        url: { type: String, required: true, trim: true },
-      }],
+      type: [
+        {
+          status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
+          url: { type: String, required: true, trim: true },
+        },
+      ],
       required: false,
       default: [],
     },
@@ -101,12 +114,14 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
+// Indexes
 UserSchema.index({ packageExpiresAt: 1 });
-// UserSchema.index({ 'defaultDomains.url': 1 }, { unique: true, sparse: true });
 UserSchema.index({ 'defaultDomains.url': 1 });
 UserSchema.index({ 'manualDomains.url': 1 });
 UserSchema.index({ 'subscription.type': 1 });
+UserSchema.index({ status: 1 }); 
 
+// Hash password before saving
 UserSchema.pre('save', async function (next) {
   const user = this as IUser;
   if (!user.isModified('password')) return next();
@@ -115,6 +130,7 @@ UserSchema.pre('save', async function (next) {
   next();
 });
 
+// Password comparison method
 UserSchema.methods.comparePassword = async function (candidate: string): Promise<boolean> {
   return bcrypt.compare(candidate, this.password);
 };

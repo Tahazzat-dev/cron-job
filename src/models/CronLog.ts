@@ -15,5 +15,4 @@ const CronLogSchema = new Schema(
 
 CronLogSchema.index({ timestamp: 1 }, { expireAfterSeconds: 2592000 }); // 30 days
 
-
 export default models.CronLog || model('CronLog', CronLogSchema);

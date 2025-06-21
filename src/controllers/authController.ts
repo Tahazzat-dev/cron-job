@@ -1,104 +1,304 @@
+import OtpStore from "../models/OtpStore";
+import PasswordResetToken from "../models/PasswordResetToken";
 import User from "../models/User";
+import { sendOtpEmail, sendResetEmail } from "../services/mail";
 import { TDomain } from "../types/types";
 import { sanitizeDomain } from "../utils/sanitize";
-
-const { generateTokens, verifyToken } = require('../utils/token');
+import { generateTokens, verifyToken } from "../utils/token";
+import { generateOtp } from "../utils/utilityFN";
+import crypto from 'crypto';
 
 const COOKIE_EXPIRY = 15 * 24 * 60 * 60 * 1000;
 
-export const registerController = async (req:any, res:any) => {
-  try {
-    const { name, email, password, domain } = req.body;
-    if(!name || !email || !password || !domain){
-        return res.status(400).json({error:true, message:"All fields are required"})
-    }
+const setRefreshCookie = (res: any, token: string) => {
+  res.cookie('refreshToken', token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    maxAge: COOKIE_EXPIRY,
+  });
+};
 
+export const registerController = async (req: any, res: any) => {
+  try {
+    const { name, email, password, domain, username, mobile } = req.body;
+    // Sanitize and validate domain
     const sanitizedDomain = sanitizeDomain(domain);
 
-    if(!sanitizedDomain) {
-      return res.status(400).json({error:true, message: `Invalid domain: ${domain}` });
+    // Validate fields
+    const requiredFields: { key: string; label: string }[] = [
+      { key: 'name', label: 'Name' },
+      { key: 'email', label: 'Email' },
+      { key: 'password', label: 'Password' },
+      { key: 'domain', label: 'Domain' },
+      { key: 'username', label: 'Username' },
+      { key: 'mobile', label: 'Mobile number' },
+    ];
+
+    for (const field of requiredFields) {
+      if (!req.body[field.key]) {
+        return res.status(400).json({ error: true, message: `${field.label} is required` });
+      }
     }
 
-    const existing = await User.findOne({ email });
-    if (existing) return res.status(409).json({error:true, message: 'Email already used' });
+    // Sanitize and validate domain
+    // const sanitizedDomain = sanitizeDomain(domain);
 
-     // --- Calculate packageExpiresAt for trial ---
-    const now = new Date();
-    const trialEndDate = new Date(now);
-    trialEndDate.setDate(now.getDate() + 2); // for 2 days free trial
-    const defaultDomains:TDomain[] = [
-      {status:"enabled", url:sanitizedDomain},
-      // {status:"enabled", url:sanitizedDomain},
-    ]
-    const user = await User.create({ name, email, password,defaultDomains,packageExpiresAt:trialEndDate});
-    const tokens = generateTokens(user);
-    res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      maxAge: COOKIE_EXPIRY
+    if (!sanitizedDomain) {
+      return res.status(400).json({ error: true, message: `Invalid domain: ${domain}` });
+    }
+
+    // Check for existing user conflicts
+    const existingUser = await User.findOne({
+      $or: [{ email }, { username }, { mobile }],
     });
 
-    res.json({ accessToken: tokens.accessToken, name: user.name, email: user.email, role: user.role });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error:true,message: 'Server error' });
+    if (existingUser) {
+      const conflictField =
+        existingUser.email === email ? 'Email' :
+          existingUser.username === username ? 'Username' : 'Mobile number';
+      return res.status(409).json({ error: true, message: `${conflictField} already in use` });
+    }
+
+    const trialEndDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // 2-day trial
+    const defaultDomains: TDomain[] = [{ status: "enabled", url: sanitizedDomain }];
+
+    const user = await User.create({
+      name,
+      email,
+      password,
+      username,
+      mobile,
+      defaultDomains,
+      packageExpiresAt: trialEndDate,
+    });
+
+    const tokens = generateTokens(user);
+    setRefreshCookie(res, tokens.refreshToken);
+
+    res.status(201).json({
+      accessToken: tokens.accessToken,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
+  } catch (err: any) {
+    console.error("Registration error:", err);
+    const message = err?.message || "Server error";
+    res.status(500).json({ error: true, message });
   }
 };
 
-export const loginController = async (req:any, res:any) => {
-   try {
+export const loginController = async (req: any, res: any) => {
+  try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: true, message: "Email and password are required" });
+    }
 
     const user = await User.findOne({ email });
     if (!user || !(await user.comparePassword(password))) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(401).json({ error: true, message: "Invalid credentials" });
     }
 
-    const tokens = generateTokens(user);
-    res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      maxAge: COOKIE_EXPIRY
-    });
+    const existing = await OtpStore.findOne({ email });
 
-    res.json({ accessToken: tokens.accessToken, name: user.name, email: user.email, role: user.role });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    try {
+      const now = new Date();
+      if (existing && existing.resendAfter > now) {
+        const waitSeconds = Math.ceil((existing.resendAfter.getTime() - now.getTime()) / 1000);
+        return res.status(429).json({ error: true, message: `Please wait ${waitSeconds} seconds before requesting another OTP.`, waitSeconds });
+      }
+
+      const otp = generateOtp();
+
+      await OtpStore.findOneAndUpdate(
+        { email },
+        {
+          otp,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 5 min expiry
+          resendAfter: new Date(Date.now() + 60 * 1000),   // 1 min spam block
+        },
+        { upsert: true }
+      );
+
+      const result = await sendOtpEmail(email, user.username, otp);
+      if (result) {
+        return res.json({ message: 'OTP sent to your email' });
+      }
+    } catch (error) {
+
+    }
+  } catch (err: any) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: true, message: "Server error" });
   }
 };
 
-export const refreshTokenController = async (req:any, res:any) => {
+export const resendOTPController = async (req: any, res: any) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+    const existing = await OtpStore.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ error: true, message: "User not found" });
+    }
+
+    if (!existing) {
+      return res.status(404).json({ error: true, message: "No OTP request found for this email" });
+    }
+
+    const now = new Date();
+    if (existing && existing.resendAfter > now) {
+      const waitSeconds = Math.ceil((existing.resendAfter.getTime() - now.getTime()) / 1000);
+      return res.status(429).json({ error: true, message: `Please wait ${waitSeconds} seconds before requesting another OTP.`, waitSeconds });
+    }
+
+    const otp = generateOtp();
+
+    await OtpStore.findOneAndUpdate(
+      { email },
+      {
+        otp,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 5 min expiry
+        resendAfter: new Date(Date.now() + 60 * 1000),   // 1 min spam block
+      },
+      { upsert: true }
+    );
+
+    const result = await sendOtpEmail(email, user.username, otp);
+    if (result) {
+      return res.json({ message: 'OTP sent to your email' });
+    }
+  } catch (error) {
+
+  }
+}
+
+export const verifyLoginOTPController = async (req: any, res: any) => {
+  try {
+    const { email, otp } = req.body;
+
+    const record = await OtpStore.findOne({ email });
+    if (!record || record.otp !== otp || record.expiresAt < new Date()) {
+      return res.status(400).json({ error: true, message: 'Invalid or expired OTP' });
+    }
+
+    await OtpStore.deleteOne({ email });
+
+    const user = await User.findOne({ email });
+    const tokens = generateTokens(user);
+    setRefreshCookie(res, tokens.refreshToken);
+
+    res.json({
+      accessToken: tokens.accessToken,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
+  } catch (err: any) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: true, message: "Server error" });
+  }
+};
+
+export const forgotPasswordController = async (req: any, res: any) => {
+  const { email, redirectBaseUrl } = req.body;
+
+  if (!email || !redirectBaseUrl) {
+    return res.status(400).json({ error: true, message: 'Email and redirect URL are required' });
+  }
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    return res.status(200).json({ message: 'If the email exists, a reset link has been sent.' });
+  }
+
+  const existing = await PasswordResetToken.findOne({ email });
+  if (existing && existing.expiresAt > new Date()) {
+    return res.status(429).json({ error: true, message: 'Please wait before requesting another reset link.' });
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+
+  const expiresAt = new Date(Date.now() + 20 * 60 * 1000); // 20 minutes expiry
+  await PasswordResetToken.findOneAndUpdate(
+    { email },
+    { token, expiresAt },
+    { upsert: true }
+  );
+
+  const resetLink = `${redirectBaseUrl}?token=${token}&email=${encodeURIComponent(email)}`;
+
+  await sendResetEmail(email, resetLink);
+
+  return res.json({ message: 'Reset link sent to your email' });
+};
+
+export const resetPasswordController = async (req: any, res: any) => {
+  try {
+    const { email, token, newPassword } = req.body;
+
+    if (!newPassword) {
+      return res.status(400).json({ error: true, message: 'New password is required' });
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: true, message: 'Email is required' });
+    }
+
+    if (!token) {
+      return res.status(400).json({ error: true, message: 'Token is required' });
+    }
+
+    const resetToken = await PasswordResetToken.findOne({ email, token });
+    if (!resetToken || resetToken.expiresAt < new Date()) {
+      return res.status(400).json({ error: true, message: 'Invalid or expired reset link' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: true, message: 'User not found' });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    await PasswordResetToken.deleteOne({ email });
+
+    return res.json({ success: true, message: 'Password has been reset successfully' });
+
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ error: true, message: 'Server error' });
+  }
+};
+
+export const refreshTokenController = async (req: any, res: any) => {
   try {
     const token = req.cookies.refreshToken;
-    if (!token) return res.status(401).json({error:true, message: 'Unauthorized' });
+    if (!token) return res.status(401).json({ error: true, message: "Unauthorized" });
 
     const payload = verifyToken(token, 'refresh');
-
-    if( !payload || !payload?.id)return res.status(404).json({error:true, message: 'Invalid or expired token' });
+    if (!payload?.id) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
     const user = await User.findById(payload.id);
-
-    if (!user) return res.status(404).json({error:true, message: 'User not found' });
+    if (!user) return res.status(404).json({ error: true, message: "User not found" });
 
     const tokens = generateTokens(user);
-    res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      maxAge: COOKIE_EXPIRY
-    });
+    setRefreshCookie(res, tokens.refreshToken);
 
     res.json({ accessToken: tokens.accessToken });
-  } catch (err) {
-    res.status(401).json({ message: 'Invalid refresh token' });
+  } catch (err: any) {
+    console.error("Refresh token error:", err);
+    res.status(401).json({ error: true, message: "Invalid refresh token" });
   }
 };
 
-export const logoutController = (req:any, res:any) => {
+export const logoutController = (req: any, res: any) => {
   res.clearCookie('refreshToken', { httpOnly: true, secure: true, sameSite: 'strict' });
   res.status(200).json({ message: 'Logged out' });
 };
-
