@@ -19,7 +19,8 @@ require('./jobs/autoCron.scheduler')
 // import { notFoundHandler, errorHandler } from './middlewares/error.middleware';
 import authRoutes from './routes/auth.routes';
 import configRoutes from './routes/config.routes';
-// import userRoutes from './routes/user.routes';
+import userRoutes from './routes/user.routes';
+import { authMiddleware } from './middlewares/authMiddleware';
 // Import other route modules as you create them
 
 const app = express();
@@ -37,7 +38,7 @@ app.use(morgan('dev'));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin/', configRoutes);
-// app.use('/api/users', userRoutes);
+app.use('/api/user', authMiddleware, userRoutes);
 // app.use('/api/subscriptions', subscriptionRoutes);
 // app.use('/api/crons', cronRoutes);
 // app.use('/api/messages', messageRoutes);
