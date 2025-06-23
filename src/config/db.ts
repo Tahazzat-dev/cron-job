@@ -1,17 +1,15 @@
-import { initializeAutoScheduler } from "../jobs/autoCron.scheduler";
+// config/db.ts
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
 
-const mongoose = require('mongoose');
-require('dotenv').config();
+dotenv.config();
 
-mongoose.connect(process.env.MONGO_URI, {});
-
-mongoose.connection.on('connected', () => {
-  // initializeAutoScheduler()
-  console.log('MongoDB connected');
-});
-
-mongoose.connection.on('error', (err:any) => {
-  console.error('MongoDB connection error:', err);
-});
-
-module.exports = mongoose;
+export async function connectDB() {
+  try {
+    if (!process.env.MONGO_URI) throw new Error('MONGO_URI not set');
+    await mongoose.connect(process.env.MONGO_URI, {});
+  } catch (err) {
+    console.error('MongoDB connection failed:', err);
+    process.exit(1); // Exit if DB fails
+  }
+}

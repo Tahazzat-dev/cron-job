@@ -8,20 +8,28 @@ import morgan from "morgan"
 import redisRoutes from './routes/test.routes';
 
 
-dotenv.config();
-
-// connect to database
-require('./config/db')
-
-// schedule auto cron job
-require('./jobs/autoCron.scheduler')
-
 // import { notFoundHandler, errorHandler } from './middlewares/error.middleware';
 import authRoutes from './routes/auth.routes';
 import configRoutes from './routes/config.routes';
 import userRoutes from './routes/user.routes';
 import { authMiddleware } from './middlewares/authMiddleware';
+import { initializeAutoScheduler } from './jobs/autoCron.scheduler';
+import { connectDB } from './config/db';
 // Import other route modules as you create them
+
+dotenv.config();
+
+// Connect to MongoDB
+const init = async () => {
+  await connectDB();
+  await initializeAutoScheduler();
+}
+init()
+
+// schedule auto cron job
+require('./jobs/autoCron.scheduler')
+
+
 
 const app = express();
 

@@ -1,8 +1,15 @@
-import getRedisInstance from '../config/redis';
-import mongoose from 'mongoose';
+import getRedisInstance from '../config/redis'
 import CronLog from '../models/CronLog';
+import { connectDB } from '../config/db';
 
 const redis = getRedisInstance();
+
+// Connect to MongoDB
+const init = async () => {
+  await connectDB();
+}
+init()
+
 
 export async function flushLogsToMongo() {
   const keys = await redis.keys('cronlogs:*');
@@ -10,16 +17,15 @@ export async function flushLogsToMongo() {
   for (const key of keys) {
     const userId = key.split(':')[1];
     const logs = await redis.lrange(key, 0, -1);
-    console.log(logs ,' logs from flushedLogs')
-     await redis.del(key)
-    // if (logs.length > 0) {
-    //   const parsedLogs = logs.map(l => JSON.parse(l));
-    //   // Save to MongoDB
-    //   await CronLog.insertMany(parsedLogs);
+    console.log(logs, ' logs from flushedLogs')
+    if (logs.length > 0) {
+      const parsedLogs = logs.map(l => JSON.parse(l));
+      // Save to MongoDB
+      // await CronLog.insertMany(parsedLogs);
 
-    //   // Clear Redis after persisting
-    //   await redis.del(key);
-    // }
+      // Clear Redis after persisting
+      await redis.del(key);
+    }
   }
 
   console.log(`[Batch Flush] Flushed ${keys.length} users' logs`);
