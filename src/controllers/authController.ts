@@ -1,8 +1,10 @@
 import OtpStore from "../models/OtpStore";
+import Package, { IPackage } from "../models/Package";
 import PasswordResetToken from "../models/PasswordResetToken";
 import User from "../models/User";
+import { autoCronQueue } from "../queues/autoCron.queue";
 import { sendOtpEmail, sendResetEmail } from "../services/mail";
-import { TDomain } from "../types/types";
+import { IUserDataToInsert, TDomain, UserPayload } from "../types/types";
 import { sanitizeDomain } from "../utils/sanitize";
 import { generateTokens, verifyToken } from "../utils/token";
 import { generateOtp } from "../utils/utilityFN";
@@ -22,8 +24,12 @@ const setRefreshCookie = (res: any, token: string) => {
 export const registerController = async (req: any, res: any) => {
   try {
     const { name, email, password, domain, username, mobile } = req.body;
+
     // Sanitize and validate domain
     const sanitizedDomain = sanitizeDomain(domain);
+    if (!sanitizedDomain) {
+      return res.status(400).json({ error: true, message: `Invalid domain: ${domain}` });
+    }
 
     // Validate fields
     const requiredFields: { key: string; label: string }[] = [
@@ -41,12 +47,6 @@ export const registerController = async (req: any, res: any) => {
       }
     }
 
-    // Sanitize and validate domain
-    // const sanitizedDomain = sanitizeDomain(domain);
-
-    if (!sanitizedDomain) {
-      return res.status(400).json({ error: true, message: `Invalid domain: ${domain}` });
-    }
 
     // Check for existing user conflicts
     const existingUser = await User.findOne({
@@ -61,18 +61,58 @@ export const registerController = async (req: any, res: any) => {
     }
 
     const trialEndDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // 2-day trial
+
+    // TODO: have to make two domain based on the condition
     const defaultDomains: TDomain[] = [{ status: "enabled", url: sanitizedDomain }];
 
-    const user = await User.create({
+    // get the package and extract the free package to asing by default.
+    const defaultPackage: IPackage | any = await Package.findOne({ name: "Free" });
+
+    // create an object of user data and add default package conditionaly 
+    const userDataToInsert: IUserDataToInsert = {
       name,
       email,
       password,
       username,
       mobile,
+      domain: sanitizedDomain,
       defaultDomains,
-      packageExpiresAt: trialEndDate,
-    });
+      subscription: undefined,
+      packageExpiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000) // 2-days by default,
+    }
 
+    if (defaultPackage) {
+      userDataToInsert.subscription = defaultPackage?._id || undefined;
+      userDataToInsert.packageExpiresAt = defaultPackage?.validity ? new Date(Date.now() + defaultPackage.validity * 24 * 60 * 60 * 1000) : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    }
+
+
+    const user = await User.create(userDataToInsert);
+
+
+    // add queue for default domains
+    if (defaultPackage && defaultPackage?.status === 'enabled') {
+      for (const domain of defaultDomains) {
+        const jobId = `auto-default-${user._id}-${domain.url}`;
+
+
+        await autoCronQueue.add(
+          'auto-execute',
+          { userId: user._id, domain, type: "default" },
+          {
+            jobId,
+            removeOnComplete: true,
+            removeOnFail: true,
+            repeat: {
+              every: defaultPackage?.intervalInMs || 7000, // fallback 7s
+            },
+          }
+        );
+      }
+    }
+
+
+    // generate token
     const tokens = generateTokens(user);
     setRefreshCookie(res, tokens.refreshToken);
 

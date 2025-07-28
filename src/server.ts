@@ -5,11 +5,14 @@ import app from "./app"
 // import { PORT } from './config';
 // import { setupSocketIO } from './sockets'; // Assuming you'll add this later
 
+
+const port = process.env.PORT || 5000
+
 const startServer = async () => {
   try {
     // await connectDB();
-    const server = app.listen(process.env.PORT, () => {
-      console.log(`⚡️[server]: Server is running at http://localhost:${process.env.PORT}`);
+    const server = app.listen(port, () => {
+      console.log(`⚡️[server]: Server is running at http://localhost:${port}`);
     });
 
     // Setup Sockzet.IO

@@ -1,17 +1,11 @@
-import { Document, Schema, model, models } from 'mongoose';
+import mongoose, { Document, Schema, model, models } from 'mongoose';
 import bcrypt from 'bcrypt';
-import { SubscriptionType, TDomain, UserRole } from '../types/types';
+import { TDomain, TManualDomain, UserRole } from '../types/types';
 
 interface NotificationPreferences {
   telegram: boolean;
   email: boolean;
 }
-
-interface SubscriptionInfo {
-  type: SubscriptionType;
-  manualCronLimit: number;
-}
-
 interface Profile {
   avatarUrl?: string;
   bio?: string;
@@ -22,15 +16,16 @@ export interface IUser extends Document {
   email: string;
   password: string;
   username: string;
-  mobile: number;
+  mobile: string;
   status: 'pending' | 'enabled' | 'disabled' | "deleted" | "blocked";
   role: UserRole;
+  domain: string;
   defaultDomains: TDomain[];
-  manualDomains?: TDomain[];
+  manualDomains?: TManualDomain[];
   telegramId?: string;
   telegramConnected: boolean;
   packageExpiresAt: Date;
-  subscription: SubscriptionInfo;
+  subscription: mongoose.Types.ObjectId;
   manualCronCount: number;
   allowedToAddManualDomains: boolean;
   notificationPreferences: NotificationPreferences;
@@ -45,16 +40,16 @@ const UserSchema = new Schema<IUser>(
   {
     name: { type: String, required: true, minlength: 2, maxlength: 50, trim: true },
     username: { type: String, required: true, unique: true },
-    mobile: { type: Number,required: true, unique: true, trim: true},
+    mobile: { type: String, required: true, unique: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true, minlength: 8 },
     status: {
       type: String,
-      enum: ['pending', 'enabled', 'disabled' , 'deleted', 'blocked'],
-      default: 'pending',
+      enum: ['pending', 'enabled', 'disabled', 'deleted', 'blocked'],
+      default: 'enabled', // modify according to requirements
     },
     role: { type: String, enum: ['admin', 'user'], default: 'user' },
-
+    domain: { type: String, required: true, unique: true, trim: true },
     defaultDomains: {
       type: [
         {
@@ -65,12 +60,13 @@ const UserSchema = new Schema<IUser>(
       required: true,
       validate: [(arr: TDomain[]) => arr.length > 0, 'At least one default domain is required.'],
     },
-
+    packageExpiresAt: { type: Date, required: true },
     manualDomains: {
       type: [
         {
           status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
           url: { type: String, required: true, trim: true },
+          executeInMs: { type: Number, default: (1000 * 60 * 10) },
         },
       ],
       required: false,
@@ -80,18 +76,11 @@ const UserSchema = new Schema<IUser>(
     telegramId: { type: String },
     telegramConnected: { type: Boolean, default: false },
 
-    packageExpiresAt: { type: Date, required: true },
-
     subscription: {
-      type: {
-        type: String,
-        enum: ['trial', 'silver', 'gold', 'diamond'],
-        required: true,
-        default: 'trial',
-      },
-      manualCronLimit: { type: Number, required: true, default: 5 },
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Package',
+      required: true,
     },
-
     manualCronCount: { type: Number, default: 0 },
     allowedToAddManualDomains: { type: Boolean, default: false },
 
@@ -115,11 +104,9 @@ const UserSchema = new Schema<IUser>(
 );
 
 // Indexes
-UserSchema.index({ packageExpiresAt: 1 });
 UserSchema.index({ 'defaultDomains.url': 1 });
-UserSchema.index({ 'manualDomains.url': 1 });
-UserSchema.index({ 'subscription.type': 1 });
-UserSchema.index({ status: 1 }); 
+UserSchema.index({ 'manualDomains.url': 1 })
+UserSchema.index({ status: 1 });
 
 // Hash password before saving
 UserSchema.pre('save', async function (next) {

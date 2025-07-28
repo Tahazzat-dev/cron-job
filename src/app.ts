@@ -1,6 +1,8 @@
 
 import express from 'express';
 import dotenv from 'dotenv';
+dotenv.config();
+
 import cors from 'cors'; // For handling CORS if frontend is on different origin
 import helmet from 'helmet'; // For security headers
 import cookieParser from 'cookie-parser'; // For parsing cookies
@@ -12,12 +14,13 @@ import redisRoutes from './routes/test.routes';
 import authRoutes from './routes/auth.routes';
 import configRoutes from './routes/config.routes';
 import userRoutes from './routes/user.routes';
+import packageRoutes from './routes/package.routes';
 import { authMiddleware } from './middlewares/authMiddleware';
 import { initializeAutoScheduler } from './jobs/autoCron.scheduler';
 import { connectDB } from './config/db';
 // Import other route modules as you create them
 
-dotenv.config();
+
 
 // Connect to MongoDB
 const init = async () => {
@@ -27,7 +30,7 @@ const init = async () => {
 init()
 
 // schedule auto cron job
-require('./jobs/autoCron.scheduler')
+// require('./jobs/autoCron.scheduler')
 
 
 
@@ -45,15 +48,18 @@ app.use(cookieParser());
 app.use(morgan('dev')); 
 
 app.use('/api/auth', authRoutes);
-app.use('/api/admin/', configRoutes);
+app.use('/api/admin', configRoutes);
 app.use('/api/user', authMiddleware, userRoutes);
+app.use('/api', packageRoutes);
 // app.use('/api/subscriptions', subscriptionRoutes);
 // app.use('/api/crons', cronRoutes);
 // app.use('/api/messages', messageRoutes);
 // app.use('/api/dashboard', dashboardRoutes);
 // app.use('/api/telegram', telegramRoutes);
-app.use('/api/test', redisRoutes);
 
+app.get('/api/health', (_, res) => {
+  res.status(200).json({ success: true, message: 'Server is healthy' });
+});
 
 // root route
 app.get('/', (req, res) => {

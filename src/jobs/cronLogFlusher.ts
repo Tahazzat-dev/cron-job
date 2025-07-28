@@ -12,6 +12,7 @@ init()
 
 
 export async function flushLogsToMongo() {
+  return;
   const keys = await redis.keys('cronlogs:*');
 
   for (const key of keys) {

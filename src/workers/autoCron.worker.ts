@@ -1,7 +1,6 @@
 import { Worker } from 'bullmq';
 import axios from 'axios';
 import getRedisInstance from '../config/redis';
-// import { io } from '../socket'; // Socket.IO instance
 import { TDomain } from '../types/types';
 
 const redis = getRedisInstance();
@@ -9,6 +8,8 @@ const redis = getRedisInstance();
 export const autoCronWorker = new Worker(
   'auto-cron-queue',
   async job => {
+    console.log(job.data,' job from worker')
+    return;
     const { userId, domain }: { userId: string; domain: TDomain } = job.data;
     const start = Date.now();
     const logKey = `cronlogs:${userId}`;
@@ -26,22 +27,16 @@ export const autoCronWorker = new Worker(
         success: true,
         responseTime: duration,
         message: 'Success',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
     } catch (err: any) {
       const duration = Date.now() - start;
 
-      let status = 0;
-      let message = 'Unknown error';
-
-      if (err.response) {
-        status = err.response.status;
-        message = err.response.statusText || err.message;
-      } else if (err.request) {
-        message = 'No response received';
-      } else {
-        message = err.message;
-      }
+      const status = err?.response?.status || 0;
+      const message =
+        err?.response?.statusText ||
+        err?.message ||
+        (err?.request ? 'No response received' : 'Unknown error');
 
       log = {
         userId,
@@ -50,16 +45,17 @@ export const autoCronWorker = new Worker(
         success: false,
         responseTime: duration,
         message,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
     }
 
-    // Store in Redis and emit via Socket.IO
+    // Save log to Redis (last 100 logs)
     await redis.lpush(logKey, JSON.stringify(log));
     await redis.ltrim(logKey, 0, 99);
-    // io.to(userId).emit('cron-log', log);
 
     console.log('[Cron Log]', log);
   },
-  { connection: redis }
+  {
+    connection: redis,
+  }
 );

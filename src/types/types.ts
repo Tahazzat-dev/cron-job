@@ -12,7 +12,23 @@ export interface TokenPayload {
 export type UserRole = 'admin' | 'user';
 export type SubscriptionType = 'silver' | 'gold' | 'diamond' | 'trial';
 
-export type TDomain = {
+export interface TDomain {
   status: 'enabled' | 'disabled';
   url: string;
 };
+
+export interface TManualDomain extends TDomain {
+  executeInMs?: number; 
+}
+
+export interface IUserDataToInsert {
+    name: string;
+    email:string;
+    password: string;
+    username: string;
+    mobile: string;
+    domain: string;
+    defaultDomains: TDomain[];
+    subscription: string | undefined;
+    packageExpiresAt:Date;
+}
