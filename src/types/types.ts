@@ -16,9 +16,16 @@ export interface TDomain {
   status: 'enabled' | 'disabled';
   url: string;
 };
+export interface IDomain extends TDomain {
+  _id:string
+};
 
 export interface TManualDomain extends TDomain {
   executeInMs?: number; 
+}
+export interface IManualDomain extends TDomain {
+  executeInMs?: number; 
+  _id:string;
 }
 
 export interface IUserDataToInsert {

@@ -60,8 +60,6 @@ export const registerController = async (req: any, res: any) => {
       return res.status(409).json({ error: true, message: `${conflictField} already in use` });
     }
 
-    const trialEndDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // 2-day trial
-
     // TODO: have to make two domain based on the condition
     const defaultDomains: TDomain[] = [{ status: "enabled", url: sanitizedDomain }];
 
@@ -123,7 +121,10 @@ export const registerController = async (req: any, res: any) => {
       role: user.role,
     });
   } catch (err: any) {
-    console.error("Registration error:", err);
+
+    if (err?.code === 11000) {
+      res.status(500).json({ error: true, message: "Domain already exists in database" });
+    }
     const message = err?.message || "Server error";
     res.status(500).json({ error: true, message });
   }

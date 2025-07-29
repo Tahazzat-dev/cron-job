@@ -12,12 +12,13 @@ import redisRoutes from './routes/test.routes';
 
 // import { notFoundHandler, errorHandler } from './middlewares/error.middleware';
 import authRoutes from './routes/auth.routes';
-import configRoutes from './routes/config.routes';
+import adminRoutes from './routes/admin.routes';
 import userRoutes from './routes/user.routes';
 import packageRoutes from './routes/package.routes';
 import { authMiddleware } from './middlewares/authMiddleware';
 import { initializeAutoScheduler } from './jobs/autoCron.scheduler';
 import { connectDB } from './config/db';
+import { isAdminMiddleware } from './middlewares/isAdminMiddleware';
 // Import other route modules as you create them
 
 
@@ -25,7 +26,7 @@ import { connectDB } from './config/db';
 // Connect to MongoDB
 const init = async () => {
   await connectDB();
-  await initializeAutoScheduler();
+  // await initializeAutoScheduler();
 }
 init()
 
@@ -48,7 +49,7 @@ app.use(cookieParser());
 app.use(morgan('dev')); 
 
 app.use('/api/auth', authRoutes);
-app.use('/api/admin', configRoutes);
+app.use('/api/admin', isAdminMiddleware, adminRoutes);
 app.use('/api/user', authMiddleware, userRoutes);
 app.use('/api', packageRoutes);
 // app.use('/api/subscriptions', subscriptionRoutes);
