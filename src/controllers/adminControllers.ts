@@ -1,6 +1,7 @@
+import mongoose from "mongoose";
 import CronLog from "../models/CronLog";
 import User from "../models/User";
-import { IDomain, IManualDomain, TDomain } from "../types/types";
+import { IDomain, IManualDomain, TDomain, TManualDomain } from "../types/types";
 
 export const getUsersDetailsController = async (req: any, res: any) => {
     try {
@@ -234,3 +235,239 @@ export const clearCronHistoryController = async (req: any, res: any) => {
         return res.status(500).json({ message: 'Server error' });
     }
 }
+
+export const addManualCronController = async (req: any, res: any) => {
+    try {
+        const { executeInMs, url, status } = req.body;
+
+        const delay = Number(executeInMs);
+
+        if (!url) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid input. `url` is required',
+            });
+        }
+
+        if (delay || delay < 3000) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid input. `executeInMs` must be at least 3000 ms.',
+            });
+        }
+
+        // Find the admin user (or whoever should own this cron)\
+        const admin = await User.findById(req.user._id);
+
+        if (!admin) {
+            return res.status(404).json({
+                success: false,
+                message: 'Admin user not found or disabled',
+            });
+        }
+
+
+        // Add domain to admin.manualDomains if not already exists
+        admin.manualDomains = admin.manualDomains || [];
+
+        const exists = admin.manualDomains?.some((d: TManualDomain) => d.url === url);
+
+        if (!exists) {
+            admin.manualDomains.push({
+                _id: new mongoose.Types.ObjectId(),
+                url,
+                status: (status as string) || 'enabled',
+                executeInMs: delay || (1000 * 60 * 10) // default 10 min
+            });
+            await admin.save();
+        } else {
+            return res.status(409).json({
+                success: false,
+                message: "This domain already exists in your database"
+            })
+        }
+
+        // Add manual cron job with delay
+        // TODO: have to add to the queue.
+        // const job = await manualCronQueue.add(
+        //   'manual-execute',
+        //   {
+        //     userId: admin._id,
+        //     domain: {
+        //       url,
+        //       status: status ?? 'enabled',
+        //     },
+        //     type: 'manual',
+        //   },
+        //   {
+        //     delay,
+        //     removeOnComplete: true,
+        //     removeOnFail: true,
+        //   }
+        // );
+
+        return res.status(201).json({
+            success: true,
+            message: 'Manual domain added',
+
+            //   jobId: job.id,
+        });
+
+    } catch (err) {
+        console.error('Error clearing cron history:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+}
+
+export const getManualCronsController = async (req: any, res: any) => {
+    try {
+        const admin = await User.findById(req.user._id);
+
+        return res.status(201).json({
+            success: true,
+            manualCrons: admin.manualDomains || []
+        });
+
+    } catch (err) {
+        console.error('Error clearing cron history:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+}
+
+export const deleteManualCronController = async (req: any, res: any) => {
+    try {
+        const { domainId } = req.params;
+
+        if (!domainId) {
+            return res.status(400).json({ success: false, message: 'Domain ID is required' });
+        }
+
+        const admin = await User.findById(req.user._id);
+
+        if (!admin || admin.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Access denied' });
+        }
+
+        const originalLength = admin.manualDomains?.length || 0;
+
+        // Filter out the domain with the matching _id
+        admin.manualDomains = (admin.manualDomains || []).filter(
+            (domain: any) => domain._id.toString() !== domainId
+        );
+
+        if (admin.manualDomains.length === originalLength) {
+            return res.status(404).json({ success: false, message: 'Manual domain not found' });
+        }
+
+        await admin.save();
+
+        return res.status(200).json({ success: true, message: 'Manual domain deleted successfully' });
+
+    } catch (err) {
+        console.error('Error deleting manual domain:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+};
+
+export const updateManualCronController = async (req: any, res: any) => {
+    try {
+        const { domainId } = req.params;
+        const { url, status, executeInMs } = req.body;
+
+        if (!url && !status && !executeInMs) {
+            return res.status(400).json({ success: false, message: 'At least one of url, status, or executeInMs must be provided', });
+        }
+
+        if (!domainId) {
+            return res.status(400).json({ success: false, message: 'Domain ID is required' });
+        }
+
+        const admin = await User.findById(req.user._id);
+
+        if (!admin || admin.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Access denied' });
+        }
+
+        const domainToUpdate = (admin.manualDomains || []).find(
+            (domain: any) => domain._id.toString() === domainId
+        );
+
+        if (!domainToUpdate) {
+            return res.status(404).json({ success: false, message: 'Manual domain not found' });
+        }
+
+        // Update allowed fields
+        if (url !== undefined) domainToUpdate.url = url;
+        if (status !== undefined) domainToUpdate.status = status;
+        if (executeInMs !== undefined) domainToUpdate.executeInMs = executeInMs;
+
+        await admin.save();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Manual domain updated successfully',
+            domain: domainToUpdate,
+        });
+    } catch (err) {
+        console.error('Error updating manual domain:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+};
+
+
+export const dashboardInfoCronController = async (req: any, res: any) => {
+    try {
+        const users = await User.find({ role: 'user' }).select('status defaultDomains manualDomains')
+
+        let totalDefaultDomains = 0;
+        let totalManualDomains = 0;
+        let activeUsers = 0;
+        let deactiveUsers = 0;
+        let onlineDomains = 0;
+        let offlineDomains = 0;
+
+        for (const user of users) {
+            if (user.status === 'enabled') activeUsers++;
+            if (user.status === 'disabled') deactiveUsers++;
+
+            totalDefaultDomains += user.defaultDomains?.length || 0;
+            totalManualDomains += user.manualDomains?.length || 0;
+
+            const defaultDomains = user.defaultDomains || [];
+            const manualDomains = user.manualDomains || [];
+
+            for (const domain of defaultDomains) {
+                if (domain.status === 'enabled') {
+                    onlineDomains++;
+                } else {
+                    offlineDomains++;
+                }
+            }
+
+            for (const domain of manualDomains) {
+                if (domain.status === 'enabled') {
+                    totalManualDomains++;
+                    onlineDomains++;
+                } else {
+                    offlineDomains++;
+                }
+            }
+        }
+
+        return res.json({
+            success: true,
+            data: {
+                totalDefaultDomains,
+                totalManualDomains,
+                activeUsers,
+                deactiveUsers,
+                offlineDomains,
+                onlineDomains,
+            },
+        });
+
+    } catch (err) {
+        console.error('Error updating manual domain:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+};

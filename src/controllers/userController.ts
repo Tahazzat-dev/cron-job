@@ -14,6 +14,7 @@ function isSanitizedString(item: SanitizeResult): item is { raw: string; sanitiz
 export const profileUpdateController = async (req: any, res: any) => {
   try {
     const userId = req.user.id;
+    console.log(userId, ' user id from update profile');
 
     const { name, mobile, password, domain } = req?.body ;
 

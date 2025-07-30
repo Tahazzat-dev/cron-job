@@ -30,6 +30,5 @@ CronLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 43200 });
 CronLogSchema.index({userId : 1 });
 CronLogSchema.index({status : 1 });
 CronLogSchema.index({ domainType: 1 });
-CronLogSchema.index({ domainType: 1 });
 
 export default models.CronLog || model<ICronLog>('CronLog', CronLogSchema);
