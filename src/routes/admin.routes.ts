@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import { addManualCronController, dashboardInfoCronController, deleteManualCronController, getManualCronsController, getSingleUserController, getUsersDetailsController, updateManualCronController, updateUserController } from '../controllers/adminControllers';
-import { clearCronHistoryController, getAdminCronHistoryController } from '../controllers/logsController';
+import { clearAllTransactionHistoryController, clearCronHistoryController, getAdminCronHistoryController, getAllTransactionHistoryController } from '../controllers/logsController';
 const router = Router();
 
 // cron log routes
 router.get('/cron-log', getAdminCronHistoryController);
 router.delete('/cron-log', clearCronHistoryController);
+
+// transaction history route 
+router.get('/transaction-history', getAllTransactionHistoryController);
+router.delete('/transaction-history', clearAllTransactionHistoryController);
 
 // users route
 router.put('/users/:id', updateUserController);

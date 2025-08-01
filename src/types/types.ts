@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+
 export interface UserPayload {
   _id: string;
   role: string;
@@ -39,3 +41,48 @@ export interface IUserDataToInsert {
     subscription: string | undefined;
     packageExpiresAt:Date;
 }
+
+
+// BSCScan api token validation
+export interface ITransaction {
+  userId: mongoose.Types.ObjectId;
+  status: "success"|"fail";
+  amount: number;
+  transactionHash:string;
+  packageId:mongoose.Types.ObjectId;
+}
+
+export interface TokenTransaction {
+  blockNumber: string;
+  timeStamp: string;
+  hash: string;
+  nonce: string;
+  blockHash: string;
+  from: string;
+  contractAddress: string;
+  to: string;
+  value: string;
+  tokenName: string;
+  tokenSymbol: string;
+  tokenDecimal: string;
+  transactionIndex: string;
+  gas: string;
+  gasPrice: string;
+  gasUsed: string;
+  cumulativeGasUsed: string;
+  input: string;
+  methodId: string;
+  functionName: string;
+  confirmations: string;
+}
+
+export interface TxValidationParams {
+  expectedHash: string;
+  expectedTo: string;
+  expectedFrom?: string;
+  expectedTokenContract: string;
+  expectedValueInWei: string;
+  minConfirmations?: number;
+}
+
+
