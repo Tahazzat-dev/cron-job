@@ -1,6 +1,6 @@
 import { Router } from 'express';
 const router = Router();
-import { addDomainController, profileUpdateController, removeDomainController, subscribePackageController, updateDomainStatusController, viewProfileController } from '../controllers/userController';
+import { addDomainController, initiateSubscribePackageController, profileUpdateController, removeDomainController, subscribePackageController, updateDomainStatusController, viewProfileController } from '../controllers/userController';
 import { clearUserCronHistoryController, getTransactionHistoryController, getUserCronHistoryController } from '../controllers/logsController';
 
 // domain 
@@ -21,6 +21,7 @@ router.get('/transactions', getTransactionHistoryController);
 
 // subscription 
 router.get('/subscribe-package', subscribePackageController);
+router.get('/initiate-subscribe-package', initiateSubscribePackageController);
  
 
 export default router;

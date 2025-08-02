@@ -79,10 +79,17 @@ export interface TokenTransaction {
 export interface TxValidationParams {
   expectedHash: string;
   expectedTo: string;
-  expectedFrom?: string;
   expectedTokenContract: string;
   expectedValueInWei: string;
-  minConfirmations?: number;
 }
 
 
+
+
+// payments
+export interface IPayment {
+  userId: mongoose.Types.ObjectId;
+  amount: number;
+  packageId: mongoose.Types.ObjectId;
+  processExpiresAt:Date;
+}

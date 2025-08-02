@@ -19,6 +19,14 @@ export function isValidTokenTransaction(
     );
 }
 
+export function isTimestampOlderThan24Hours(timestampInSeconds:number):boolean {
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    const oneDayInSeconds = 24 * 60 * 60;
+    const differenceInSeconds = currentTimestamp - timestampInSeconds;
+    return differenceInSeconds > oneDayInSeconds;
+}
+
+
 
 /*
  Example use

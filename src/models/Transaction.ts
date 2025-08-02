@@ -17,7 +17,7 @@ const transactionSchema = new Schema<ITransaction>(
 );
 
 // Auto-delete logs after 30 days
-transactionSchema.index({ userId: 1 }, { expireAfterSeconds: 2592000 });
+transactionSchema.index({ userId: 1 }, { expireAfterSeconds: 15552000 });
 transactionSchema.index({status : 1 });
 
 export default models.Transaction || model<ITransaction>('Transaction', transactionSchema);
