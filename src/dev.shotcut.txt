@@ -1,0 +1,10 @@
+ // Validate fields
+    const requiredFields: { key: string; label: string }[] = [
+      { key: '', label: '' },
+    ];
+
+    for (const field of requiredFields) {
+      if (!req.body[field.key]) {
+        return res.status(400).json({ error: true, message: `${field.label} is required` });
+      }
+    }

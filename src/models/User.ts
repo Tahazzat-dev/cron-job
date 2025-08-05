@@ -1,4 +1,4 @@
-import mongoose, { Document, Schema, model, models } from 'mongoose';
+import mongoose, { Document, Schema, Types, model, models } from 'mongoose';
 import bcrypt from 'bcrypt';
 import { TDomain, TManualDomain, UserRole } from '../types/types';
 
@@ -21,18 +21,18 @@ export interface IUser extends Document {
   role: UserRole;
   domain: string;
   defaultDomains: TDomain[];
-  manualDomains?: TManualDomain[];
+  manualDomains: TManualDomain[];
   telegramId?: string;
   telegramConnected: boolean;
   packageExpiresAt: Date;
-  subscription: mongoose.Types.ObjectId;
+  subscription?: mongoose.Types.ObjectId;
   manualCronCount: number;
   allowedToAddManualDomains: boolean;
   notificationPreferences: NotificationPreferences;
   twoFactorEnabled: boolean;
   failedLoginAttempts: number;
   lastFailedLoginAt?: Date;
-  profile: Profile;
+  profile?: Profile;
   comparePassword(candidate: string): Promise<boolean>;
 }
 
@@ -53,23 +53,22 @@ const UserSchema = new Schema<IUser>(
     defaultDomains: {
       type: [
         {
-          status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
+          status: { type: String, enum: ['enabled', 'disabled'] },
           url: { type: String, required: true, trim: true },
         },
       ],
-      required: true,
-      validate: [(arr: TDomain[]) => arr.length > 0, 'At least one default domain is required.'],
+      default: [],
     },
-    packageExpiresAt: { type: Date, required: true },
+    packageExpiresAt: { type: Date, default: () => new Date() },
     manualDomains: {
       type: [
         {
+          title: { type: String, required: true },
           status: { type: String, enum: ['enabled', 'disabled'], default: 'enabled' },
           url: { type: String, required: true, trim: true },
           executeInMs: { type: Number, default: (1000 * 60 * 10) },
         },
       ],
-      required: false,
       default: [],
     },
 
@@ -77,10 +76,11 @@ const UserSchema = new Schema<IUser>(
     telegramConnected: { type: Boolean, default: false },
 
     subscription: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Types.ObjectId,
       ref: 'Package',
-      required: true,
+      required: false,
     },
+
     manualCronCount: { type: Number, default: 0 },
     allowedToAddManualDomains: { type: Boolean, default: false },
 
@@ -94,8 +94,11 @@ const UserSchema = new Schema<IUser>(
     lastFailedLoginAt: { type: Date },
 
     profile: {
-      avatarUrl: { type: String },
-      bio: { type: String, maxlength: 300 },
+      type: {
+        avatarUrl: { type: String },
+        bio: { type: String, maxlength: 300 },
+      },
+      default: {},
     },
   },
   {

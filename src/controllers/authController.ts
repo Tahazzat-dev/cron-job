@@ -5,33 +5,23 @@ import User from "../models/User";
 import { autoCronQueue } from "../queues/autoCron.queue";
 import { sendOtpEmail, sendResetEmail } from "../services/mail";
 import { IUserDataToInsert, TDomain, UserPayload } from "../types/types";
-import { sanitizeDomain } from "../utils/sanitize";
+import { createDefaultCronExecutableURL, sanitizeDomain } from "../utils/sanitize";
 import { generateTokens, verifyToken } from "../utils/token";
-import { generateOtp } from "../utils/utilityFN";
+import { generateOtp, setRefreshCookie } from "../utils/utilityFN";
 import crypto from 'crypto';
-
-const COOKIE_EXPIRY = 15 * 24 * 60 * 60 * 1000;
-
-const setRefreshCookie = (res: any, token: string) => {
-  res.cookie('refreshToken', token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'strict',
-    maxAge: COOKIE_EXPIRY,
-  });
-};
+import bcrypt from 'bcrypt';
 
 export const registerController = async (req: any, res: any) => {
   try {
     const { name, email, password, domain, username, mobile } = req.body;
 
-    // Sanitize and validate domain
+    // 1. Sanitize and validate domain
     const sanitizedDomain = sanitizeDomain(domain);
     if (!sanitizedDomain) {
       return res.status(400).json({ error: true, message: `Invalid domain: ${domain}` });
     }
 
-    // Validate fields
+    // 2. Validate required fields
     const requiredFields: { key: string; label: string }[] = [
       { key: 'name', label: 'Name' },
       { key: 'email', label: 'Email' },
@@ -47,26 +37,47 @@ export const registerController = async (req: any, res: any) => {
       }
     }
 
-
-    // Check for existing user conflicts
+    // 3. Block already registered users (excluding 'pending')
     const existingUser = await User.findOne({
-      $or: [{ email }, { username }, { mobile }],
+      $and: [
+        { $or: [{ email }, { username }, { mobile }] },
+        { status: { $ne: 'pending' } }
+      ]
     });
 
     if (existingUser) {
       const conflictField =
         existingUser.email === email ? 'Email' :
-          existingUser.username === username ? 'Username' : 'Mobile number';
+          existingUser.username === username ? 'Username' :
+            'Mobile number';
       return res.status(409).json({ error: true, message: `${conflictField} already in use` });
     }
 
-    // TODO: have to make two domain based on the condition
-    const defaultDomains: TDomain[] = [{ status: "enabled", url: sanitizedDomain }];
+    // 4. OTP request throttling
+    const existingOtp = await OtpStore.findOne({ email });
+    const now = new Date();
+    if (existingOtp && existingOtp.resendAfter > now) {
+      const waitSeconds = Math.ceil((existingOtp.resendAfter.getTime() - now.getTime()) / 1000);
+      return res.status(429).json({
+        error: true,
+        message: `Please wait ${waitSeconds} seconds before requesting another OTP.`,
+        waitSeconds,
+      });
+    }
 
-    // get the package and extract the free package to asing by default.
-    const defaultPackage: IPackage | any = await Package.findOne({ name: "Free" });
+    // 5. Generate and store OTP
+    const otp = generateOtp();
+    await OtpStore.findOneAndUpdate(
+      { email },
+      {
+        otp,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        resendAfter: new Date(Date.now() + 60 * 1000),     // 1 minute block
+      },
+      { upsert: true }
+    );
 
-    // create an object of user data and add default package conditionaly 
+    // 6. Prepare user data
     const userDataToInsert: IUserDataToInsert = {
       name,
       email,
@@ -74,41 +85,85 @@ export const registerController = async (req: any, res: any) => {
       username,
       mobile,
       domain: sanitizedDomain,
-      defaultDomains,
-      subscription: undefined,
-      packageExpiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000) // 2-days by default,
+      status: 'pending',
+    };
+
+    // 7. Create or Update pending user
+    const pendingUser = await User.findOne({ email, status: 'pending' });
+
+    let user;
+    if (pendingUser) {
+      // Update existing pending user
+      const salt = await bcrypt.genSalt(10);
+      userDataToInsert.password = salt;
+      user = await User.findOneAndUpdate(
+        { _id: pendingUser._id },
+        userDataToInsert,
+        { new: true }
+      );
+    } else {
+      // Create new pending user
+      user = await User.create(userDataToInsert);
     }
 
-    if (defaultPackage) {
-      userDataToInsert.subscription = defaultPackage?._id || undefined;
-      userDataToInsert.packageExpiresAt = defaultPackage?.validity ? new Date(Date.now() + defaultPackage.validity * 24 * 60 * 60 * 1000) : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    // 8. Send OTP email
+    const result = await sendOtpEmail(email, user.username, otp, "register");
+
+    // 9. Respond
+    if (result) {
+      return res.status(200).json({
+        success: true,
+        message: 'OTP sent to your email. Please verify to activate your account.',
+      })
+    } else {
+      console.log("Couldn't send the email.")
+      return res.status(200).json({
+        success: false,
+        message: 'Internal server error. Please try again',
+      });
+    }
+  } catch (err: any) {
+    if (err?.code === 11000 && err?.keyPattern?.domain) {
+      return res.status(409).json({ error: true, message: 'Domain already exists in database.' });
     }
 
-
-    const user = await User.create(userDataToInsert);
-
-
-    // add queue for default domains
-    if (defaultPackage && defaultPackage?.status === 'enabled') {
-      for (const domain of defaultDomains) {
-        const jobId = `auto-default-${user._id}-${domain.url}`;
+    console.error('Register Error:', err);
+    const message = err?.message || 'Server error';
+    res.status(500).json({ error: true, message });
+  }
+};
 
 
-        await autoCronQueue.add(
-          'auto-execute',
-          { userId: user._id, domain, type: "default" },
-          {
-            jobId,
-            removeOnComplete: true,
-            removeOnFail: true,
-            repeat: {
-              every: defaultPackage?.intervalInMs || 7000, // fallback 7s
-            },
-          }
-        );
-      }
+export const verifyRegistrationOTPController = async (req: any, res: any) => {
+  try {
+    const { email, otp } = req.body;
+
+    // 1. Check the otpStore and find matched data.
+    const record = await OtpStore.findOne({ email });
+
+    if (!record || record.otp !== otp || record.expiresAt < new Date()) {
+      return res.status(400).json({ error: true, message: 'Invalid or expired OTP' });
     }
 
+    // 2. Find the user and extract domain to add default domain data.
+    const user = await User.findOne({ email });
+    if (!user) throw new Error("Something went wrong");
+    const defaultDomains: TDomain[] = [{ status: "enabled", url: createDefaultCronExecutableURL(user.domain) }];
+    user.status = "enabled";
+    user.defaultDomains = defaultDomains;
+
+    // 3. get the free package and assing to the user for trial
+    const defaultPackage: IPackage | any = await Package.findOne({ name: "Free" });
+    if (defaultPackage.status === 'enabled') {
+      user.subscription = defaultPackage?._id || undefined;
+      user.packageExpiresAt = defaultPackage?.validity ? new Date(Date.now() + defaultPackage.validity * 24 * 60 * 60 * 1000) : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+
+      // add task to the task queue
+      
+    }
+
+    await user.save()
+    await OtpStore.deleteOne({ email });
 
     // generate token
     const tokens = generateTokens(user);
@@ -121,12 +176,8 @@ export const registerController = async (req: any, res: any) => {
       role: user.role,
     });
   } catch (err: any) {
-
-    if (err?.code === 11000) {
-      res.status(500).json({ error: true, message: "Domain already exists in database" });
-    }
-    const message = err?.message || "Server error";
-    res.status(500).json({ error: true, message });
+    console.error("Login error:", err);
+    res.status(500).json({ error: true, message: "Server error" });
   }
 };
 
@@ -245,6 +296,8 @@ export const verifyLoginOTPController = async (req: any, res: any) => {
     res.status(500).json({ error: true, message: "Server error" });
   }
 };
+
+
 
 export const forgotPasswordController = async (req: any, res: any) => {
   const { email, redirectBaseUrl } = req.body;

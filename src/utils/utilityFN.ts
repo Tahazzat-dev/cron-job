@@ -19,6 +19,18 @@ export function isValidTokenTransaction(
     );
 }
 
+
+const COOKIE_EXPIRY = 15 * 24 * 60 * 60 * 1000;
+
+export const setRefreshCookie = (res: any, token: string) => {
+  res.cookie('refreshToken', token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    maxAge: COOKIE_EXPIRY,
+  });
+};
+
 export function isTimestampOlderThan24Hours(timestampInSeconds:number):boolean {
     const currentTimestamp = Math.floor(Date.now() / 1000);
     const oneDayInSeconds = 24 * 60 * 60;

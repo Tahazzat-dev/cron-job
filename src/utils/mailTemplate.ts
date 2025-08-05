@@ -1,4 +1,4 @@
-export const generateOtpMailTemplate = (otp: string, username:string): string => {
+export const generateOtpMailTemplate = (otp: string, username:string,mailType:'login'|'register'="login"): string => {
     return `
     <!DOCTYPE html>
 <html lang="en">
@@ -54,7 +54,7 @@ export const generateOtpMailTemplate = (otp: string, username:string): string =>
     <div class="container">
         <div class="content">
             <p>Hi ${username},</p>
-            <p>Here is your One-Time Password (OTP) for logging into your account:</p>
+            <p>Here is your One-Time Password (OTP) for ${mailType==="login" ? "logging into":"registering"} your account:</p>
             <div class="otp-code">
                 ${otp}
             </div>

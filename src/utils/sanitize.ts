@@ -5,11 +5,6 @@ export function sanitizeDomain(raw: string): string | null {
 
   let urlString = raw.trim().toLowerCase();
 
-  // Add default protocol if missing
-  if (!/^https?:\/\//i.test(urlString)) {
-    urlString = 'https://' + urlString;
-  }
-
   try {
     const parsed = new URL(urlString);
     const domain = parsed.hostname;
@@ -18,8 +13,13 @@ export function sanitizeDomain(raw: string): string | null {
       return null;
     }
 
-    return urlString; 
+    return `https://${domain}`; 
   } catch {
     return null;
   }
+}
+
+
+export const createDefaultCronExecutableURL = (rootDomain:string):string=>{
+  return rootDomain + '/includes/cron.php'
 }

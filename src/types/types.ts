@@ -24,6 +24,7 @@ export interface IDomain extends TDomain {
 
 export interface TManualDomain extends TDomain {
   executeInMs?: number; 
+  title:string;
 }
 export interface IManualDomain extends TDomain {
   executeInMs?: number; 
@@ -35,18 +36,16 @@ export interface IUserDataToInsert {
     email:string;
     password: string;
     username: string;
+    status:"pending";
     mobile: string;
     domain: string;
-    defaultDomains: TDomain[];
-    subscription: string | undefined;
-    packageExpiresAt:Date;
 }
 
 
 // BSCScan api token validation
 export interface ITransaction {
   userId: mongoose.Types.ObjectId;
-  status: "success"|"fail";
+  status: "success"|"fail" | "pending";
   amount: number;
   transactionHash:string;
   packageId:mongoose.Types.ObjectId;
