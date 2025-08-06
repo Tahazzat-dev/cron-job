@@ -63,7 +63,7 @@ export const generateOtpMailTemplate = (otp: string, username:string,mailType:'l
         </div>
         <div class="footer">
             <p>Thanks,</p>
-            <p>The FastCronJob Team</p>
+            <p>The Expresscronjob Team</p>
         </div>
     </div>
 </body>
@@ -149,7 +149,7 @@ export const generatePasswordResetMailTemplate = (resetLink: string): string => 
         </div>
         <div class="footer">
             <p>Thanks,</p>
-            <p>The FastCronJob Team</p>
+            <p>The Expresscronjob Team</p>
         </div>
     </div>
 </body>

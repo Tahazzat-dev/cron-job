@@ -1,8 +1,9 @@
 import {Router} from 'express';
 const router = Router();
-import {registerController,loginController, refreshTokenController, logoutController, verifyLoginOTPController, resendOTPController, forgotPasswordController, resetPasswordController} from "../controllers/authController"
+import {registerController,loginController, refreshTokenController, logoutController, verifyLoginOTPController, resendOTPController, forgotPasswordController, resetPasswordController, verifyRegistrationOTPController} from "../controllers/authController"
 
 router.post('/register', registerController);
+router.post('/verify-registration-otp', verifyRegistrationOTPController);
 router.post('/login', loginController);
 router.post('/verify-otp', verifyLoginOTPController);
 router.post('/resend-otp', resendOTPController);

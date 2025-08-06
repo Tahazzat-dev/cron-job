@@ -87,6 +87,8 @@ export async function initializeAutoScheduler() {
 }
 
 
+
+// TODO: have to change the deprecated version.
 export async function clearAllRepeatableJobs() {
   const repeatableJobs = await autoCronQueue.getRepeatableJobs();
 
@@ -96,3 +98,14 @@ export async function clearAllRepeatableJobs() {
 
   console.log(`[${new Date().toISOString()}] Cleared all repeatable jobs from autoCronQueue`);
 }
+
+
+// export async function clearAllRepeatableJobs() {
+//     const jobSchedulers = await autoCronQueue.getJobSchedulers();
+
+//   for (const scheduler of jobSchedulers) {
+//    await autoCronQueue.removeJobScheduler(scheduler.id);
+//   }
+
+//   console.log(`[${new Date().toISOString()}] Cleared all repeatable jobs from autoCronQueue`);
+// }

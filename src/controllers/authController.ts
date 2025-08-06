@@ -1,7 +1,7 @@
 import OtpStore from "../models/OtpStore";
 import Package, { IPackage } from "../models/Package";
 import PasswordResetToken from "../models/PasswordResetToken";
-import User from "../models/User";
+import User, { IUser } from "../models/User";
 import { autoCronQueue } from "../queues/autoCron.queue";
 import { sendOtpEmail, sendResetEmail } from "../services/mail";
 import { IUserDataToInsert, TDomain, UserPayload } from "../types/types";
@@ -138,46 +138,82 @@ export const verifyRegistrationOTPController = async (req: any, res: any) => {
   try {
     const { email, otp } = req.body;
 
-    // 1. Check the otpStore and find matched data.
-    const record = await OtpStore.findOne({ email });
+    // 1. Validate input
+    if (!email || !otp) {
+      return res.status(400).json({ error: true, message: 'Email and OTP are required' });
+    }
 
-    if (!record || record.otp !== otp || record.expiresAt < new Date()) {
+    // 2. Lookup OTP record
+    const record = await OtpStore.findOne({ email });
+    console.log(record, ' record from otp store');
+    if (!record || record?.otp !== otp || record.expiresAt < new Date()) {
       return res.status(400).json({ error: true, message: 'Invalid or expired OTP' });
     }
 
-    // 2. Find the user and extract domain to add default domain data.
-    const user = await User.findOne({ email });
-    if (!user) throw new Error("Something went wrong");
-    const defaultDomains: TDomain[] = [{ status: "enabled", url: createDefaultCronExecutableURL(user.domain) }];
-    user.status = "enabled";
+    // 3. Lookup user
+    const user:any = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: true, message: 'User not found' });
+    } ;
+
+    // 4. Update user status and assign default domain
+    const defaultDomains: TDomain[] = [
+      {
+        status: 'enabled',
+        url: createDefaultCronExecutableURL(user.domain),
+      },
+    ];
+
+    user.status = 'enabled';
     user.defaultDomains = defaultDomains;
 
-    // 3. get the free package and assing to the user for trial
-    const defaultPackage: IPackage | any = await Package.findOne({ name: "Free" });
-    if (defaultPackage.status === 'enabled') {
-      user.subscription = defaultPackage?._id || undefined;
-      user.packageExpiresAt = defaultPackage?.validity ? new Date(Date.now() + defaultPackage.validity * 24 * 60 * 60 * 1000) : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    // 5. Assign free package if available and set schedule job to the queue
+    const defaultPackage: IPackage | null = await Package.findOne({ name: 'Free', status: 'enabled' });
 
-      // add task to the task queue
-      
+    if (defaultPackage) {
+      user.subscription = defaultPackage._id;
+      user.packageExpiresAt = defaultPackage.validity
+        ? new Date(Date.now() + defaultPackage.validity * 24 * 60 * 60 * 1000)
+        : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // fallback 2 days
+
+      // enqueue domain job for cron or monitoring
+      for (const domain of defaultDomains) {
+        const jobId = `auto-default-${user._id}-${domain.url}`;
+
+        await autoCronQueue.add(
+          'auto-execute',
+          { userId:user?._id , domain ,type:"default"},
+          {
+            jobId,
+            removeOnComplete: true,
+            removeOnFail: true,
+            repeat: {
+              every: defaultPackage?.intervalInMs || 7000 // 7s as fallback,
+            },
+          }
+        );
+      }
+
     }
 
-    await user.save()
+    await user.save();
     await OtpStore.deleteOne({ email });
 
-    // generate token
+    // 6. Generate JWT tokens
     const tokens = generateTokens(user);
     setRefreshCookie(res, tokens.refreshToken);
 
-    res.status(201).json({
+    return res.status(200).json({
+      success: true,
       accessToken: tokens.accessToken,
       name: user.name,
       email: user.email,
       role: user.role,
     });
+
   } catch (err: any) {
-    console.error("Login error:", err);
-    res.status(500).json({ error: true, message: "Server error" });
+    console.error('[verifyRegistrationOTPController]', err);
+    return res.status(500).json({ error: true, message: 'Server error' });
   }
 };
 

@@ -162,8 +162,6 @@ export const clearAllTransactionHistoryController = async (req: any, res: any) =
 }
 
 
-
-
 // cron history for user
 export const getUserCronHistoryController = async (req: any, res: any) => {
   try {
