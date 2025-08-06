@@ -23,3 +23,19 @@ export function sanitizeDomain(raw: string): string | null {
 export const createDefaultCronExecutableURL = (rootDomain:string):string=>{
   return rootDomain + '/includes/cron.php'
 }
+
+
+export function extractPathAfterRootDomain(url: string): string | null {
+  try {
+    if (!url.startsWith('http')) {
+      url = `http://${url}`;
+    }
+
+    const parsed = new URL(url);
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch (err) {
+    console.error('[extractPathAfterRootDomain] Invalid URL:', url);
+    return null;
+  }
+}
+

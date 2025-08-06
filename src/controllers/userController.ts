@@ -1,13 +1,14 @@
 import { isValidObjectId } from "mongoose";
 import User from "../models/User";
-import { IPayment, ITransaction, TDomain, TokenTransaction, TxValidationParams } from "../types/types";
-import { sanitizeDomain } from "../utils/sanitize";
+import { IPayment, ITransaction, TDomain, TManualDomain, TokenTransaction, TxValidationParams } from "../types/types";
+import { extractPathAfterRootDomain, sanitizeDomain } from "../utils/sanitize";
 import axios from "axios";
 import { isTimestampOlderThan24Hours, isValidTokenTransaction } from "../utils/utilityFN";
 import Package from "../models/Package";
 import { error } from "console";
 import Transaction from "../models/Transaction";
 import Payment from "../models/Payment";
+import { autoCronQueue } from "../queues/autoCron.queue";
 
 interface SanitizeResult {
   raw: string;
@@ -23,7 +24,7 @@ export const profileUpdateController = async (req: any, res: any) => {
     const userId = req.user.id;
     console.log(userId, ' user id from update profile');
 
-    const { name, mobile, password, domain } = req?.body;
+    const { name, mobile, password } = req?.body;
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: true, message: 'User not found' });
@@ -34,12 +35,6 @@ export const profileUpdateController = async (req: any, res: any) => {
 
     if (password && password.length >= 8) {
       user.password = password
-    }
-
-    if (domain) {
-      const sanitized = sanitizeDomain(domain);
-      if (!sanitized) return res.status(400).json({ error: true, message: 'Invalid domain' });
-      user.defaultDomains = [{ status: 'enabled', url: sanitized }];
     }
 
     await user.save();
@@ -65,23 +60,20 @@ export const profileUpdateController = async (req: any, res: any) => {
 export const viewProfileController = async (req: any, res: any) => {
   try {
     const userId = req.user.id;
-    const user = await User.findById(userId);
+    const user = await User.findById(userId)
+      .select('name email mobile status role defaultDomains telegramConnected packageExpiresAt subscription manualCronCount allowedToAddManualDomains manualDomains')
+      .populate({
+        path: 'subscription',
+        model: 'Package',
+        select: 'name validity status features',
+      })
+      .lean();
+
     if (!user) return res.status(404).json({ error: true, message: 'User not found' });
+
     res.json({
       success: true,
-      user: {
-        name: user.name,
-        email: user.email,
-        domain: user.defaultDomains,
-        mobile: user.mobile,
-        status: user.status,
-        role: user.role,
-        telegramConnected: user.telegramConnected,
-        packageExpiresAt: user.packageExpiresAt,
-        subscription: user.subscription,
-        manualCronCount: user.manualCronCount,
-        allowedToAddManualDomains: user.allowedToAddManualDomains,
-      }
+      user
     });
 
   } catch (err) {
@@ -93,85 +85,112 @@ export const viewProfileController = async (req: any, res: any) => {
 export const addDomainController = async (req: any, res: any) => {
   try {
     const userId = req.user.id;
-    const { domains }: { domains: string[] } = req.body;
+    const { url, title, executeInMs } = req.body;
 
-    if (!Array.isArray(domains) || domains.length === 0) {
-      return res.status(400).json({ error: true, message: 'Invalid domains format' });
+    if (!url || !title || !executeInMs) {
+      return res.status(400).json({ error: true, message: 'URL, title and executeInMs properties are required' });
     }
 
-    const user = await User.findById(userId);
+    if(executeInMs < 3000){
+      return res.status(403).json({ error: true, message: 'executeInMs must be larger than 3s' });
+    }
+
+    const sanitized = sanitizeDomain(url);
+    if (typeof url !== 'string' || !sanitized) {
+      return res.status(400).json({ error: true, message: 'Invalid URL formate. A valid URL must be provided' });
+    }
+
+    const user: any = await User.findById(userId).populate('subscription').lean();
     if (!user) return res.status(404).json({ error: true, message: 'User not found' });
 
-    const sanitized = domains.map(domain => ({
-      raw: domain,
-      sanitized: sanitizeDomain(domain),
-    }));
 
-    const validSanitizedDomains = sanitized.filter(item => item.sanitized);
-    const invalidDomains = sanitized.filter(item => !item.sanitized).map(item => item.raw);
-
-    if (validSanitizedDomains.length === 0) {
-      return res.status(400).json({ error: true, message: 'No valid domains provided', invalidDomains });
+    // check if the user is permitted to add manual domain
+    if (!user.allowedToAddManualDomains) {
+      return res.status(403).json({ error: true, message: 'You are not authorized to add manual domain please contact admin to enable that.' });
     }
 
-    // Gather existing domain URLs for comparison
-    const defaultUrls = user.defaultDomains.map((d: TDomain) => d.url);
-    const manualUrls = (user.manualDomains || []).map((d: TDomain) => d.url);
-    const allExistingUrls = new Set([...defaultUrls, ...manualUrls]);
-
-    // Filter out duplicates
-    const newUniqueDomains = validSanitizedDomains
-      .filter(item => !allExistingUrls.has(item.sanitized))
-      .map(item => item.sanitized as string);
-
-    const duplicates = validSanitizedDomains
-      .filter(item => allExistingUrls.has(item.sanitized))
-      .map(item => item.raw);
-
-    if (newUniqueDomains.length === 0) {
-      return res.status(409).json({
-        error: true,
-        message: `${duplicates.length > 1 ? "All" : "This"} domain${duplicates.length > 1 ? "s" : ""} already exist`,
-        duplicates,
-        invalid: invalidDomains
-      });
+    if (!sanitized) {
+      return res.status(400).json({ error: true, message: 'Invalid domain format' });
     }
 
-    // Quota check
-    const manualCronCount = user.manualCronCount || 0;
-    const limit = user.subscription?.manualCronLimit || 0;
-    const newTotal = manualCronCount + newUniqueDomains.length;
-
-    if (newTotal > limit) {
+    if (!user?.domain || sanitized !== user.domain) {
       return res.status(400).json({
         error: true,
-        message: `Adding ${newUniqueDomains.length > 1 ? "these" : "this"} domain${newUniqueDomains.length > 1 ? "s" : ""} exceeds your limit (${limit})`,
-        currentCount: manualCronCount,
-        tryingToAdd: newUniqueDomains.length
+        message: 'Root domain mismatch. You can only add Urls under your registered root domain.',
+        expectedRoot: user.domain,
+        receivedRoot: sanitized,
       });
     }
 
-    // Add to user's manualDomains
-    const domainObjects: TDomain[] = newUniqueDomains.map(url => ({
-      url,
-      status: 'enabled',
-    }));
+    const defaultUrls = user.defaultDomains.map((d: TDomain) => d.url);
+    const manualUrls = (user.manualDomains || []).map((d: TDomain) => d.url);
+    const allUrls = new Set([...defaultUrls, ...manualUrls]);
 
-    user.manualDomains?.push(...domainObjects);
-    user.manualCronCount += domainObjects.length;
-    await user.save();
+
+
+    const urlAfterRoot = extractPathAfterRootDomain(url);
+
+    if (allUrls.has(sanitized)) {
+      return res.status(409).json({
+        error: true,
+        message: ' This domain already exists in your account',
+        domain: sanitized
+      });
+    }
+    console.log(user, ' current users ')
+
+    const manualCronCount = user.manualCronCount || 0;
+    const limit = user.subscription?.manualCronLimit || 0;
+
+    if (manualCronCount + 1 > limit) {
+      return res.status(400).json({
+        error: true,
+        message: `Adding this URL exceeds your manual cron limit (${limit})`,
+        currentCount: manualCronCount
+      });
+    }
+
+    // All checks passed: Add url
+    const fullSanitizedDomain = sanitized + urlAfterRoot;
+    const domainObject: TManualDomain = {
+      url: fullSanitizedDomain,
+      status: 'enabled',
+      title,
+      executeInMs,
+    };
+
+    // add the manual domain in the task queue to execute 
+    const jobId = `auto-manual-${userId}-${fullSanitizedDomain}`;
+    await autoCronQueue.add(
+      'auto-execute',
+      { userId, domainObject, type: "manual" },
+      {
+        jobId,
+        removeOnComplete: true,
+        removeOnFail: true,
+        repeat: {
+          every: executeInMs || 10 * 60 * 1000, // fallback 10 mins
+        },
+      }
+    );
+
+    await User.updateOne(
+      { _id: userId },
+      {
+        $push: { manualDomains: domainObject },
+        $inc: { manualCronCount: 1 }
+      }
+    );
 
     return res.status(200).json({
       success: true,
-      message: 'Domains added successfully',
-      added: newUniqueDomains,
-      invalid: invalidDomains,
-      duplicates
+      message: 'Domain added successfully',
+      added: sanitized
     });
 
   } catch (err) {
     console.error('[Add Domain]', err);
-    res.status(500).json({ error: true, message: 'Server error' });
+    return res.status(500).json({ error: true, message: 'Server error' });
   }
 };
 
@@ -240,6 +259,14 @@ export const updateDomainStatusController = async (req: any, res: any) => {
         updatedDomain = domain;
         updatedDomainType = 'manual';
       }
+
+      // add/remove domain from the queue based on the status
+      if(status==="enabled"){
+
+      }else{
+
+      }
+
     }
 
     // Try updating defaultDomains if not found in manualDomains
@@ -297,7 +324,7 @@ export const subscribePackageController = async (req: any, res: any) => {
       return res.status(500).json({ error: true, message: 'Server misconfiguration' });
     }
 
-    
+
     if (!amount || !packageId || !transactionHash) {
       return res.status(400).json({
         error: true,

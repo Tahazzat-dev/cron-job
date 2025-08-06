@@ -42,6 +42,23 @@ export interface IUserDataToInsert {
 }
 
 
+// types for schedular
+type DomainType = 'default' | 'manual';
+
+type TDomainType = {
+    url: string;
+    _id: string;
+    status: string;
+}
+
+export interface IAddDomainToQueueOptions {
+    userId: string;
+    domain: TDomainType;
+    type: DomainType;
+    intervalInMs: number;
+}
+
+
 // BSCScan api token validation
 export interface ITransaction {
   userId: mongoose.Types.ObjectId;

@@ -26,7 +26,7 @@ import { isAdminMiddleware } from './middlewares/isAdminMiddleware';
 // Connect to MongoDB
 const init = async () => {
   await connectDB();
-  // await initializeAutoScheduler();
+  await initializeAutoScheduler();
 }
 init()
 
@@ -50,7 +50,7 @@ app.use(morgan('dev'));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', isAdminMiddleware, adminRoutes);
-app.use('/api/user', authMiddleware, userRoutes);
+app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api', packageRoutes);
 // app.use('/api/subscriptions', subscriptionRoutes);
 // app.use('/api/crons', cronRoutes);
