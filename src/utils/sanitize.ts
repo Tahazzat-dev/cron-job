@@ -5,6 +5,11 @@ export function sanitizeDomain(raw: string): string | null {
 
   let urlString = raw.trim().toLowerCase();
 
+  // Prepend a protocol to handle cases where it's missing
+  if (!urlString.startsWith('http://') && !urlString.startsWith('https://')) {
+    urlString = `https://${urlString}`;
+  }
+
   try {
     const parsed = new URL(urlString);
     const domain = parsed.hostname;
@@ -13,14 +18,17 @@ export function sanitizeDomain(raw: string): string | null {
       return null;
     }
 
-    return `https://${domain}`; 
+    // Return the sanitized domain with the https protocol
+    return `https://${domain}`;
   } catch {
     return null;
   }
 }
 
 
-export const createDefaultCronExecutableURL = (rootDomain:string):string=>{
+
+
+export const createDefaultCronExecutableURL = (rootDomain: string): string => {
   return rootDomain + '/includes/cron.php'
 }
 

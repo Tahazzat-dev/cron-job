@@ -7,10 +7,12 @@ export const packageCleanupWorker = new Worker(
   'package-cleanup-queue',
   async (job) => {
     const { userId } = job.data;
-     const jobSchedulers = await autoCronQueue.getJobSchedulers();
+    const jobSchedulers = await autoCronQueue.getJobSchedulers();
 
     for (const repeatJob of jobSchedulers) {
-      if (repeatJob.id?.includes(userId)) {
+      const jobUserId = repeatJob.template?.data?.userId;
+
+      if (jobUserId === userId) {
         await autoCronQueue.removeJobScheduler(repeatJob.key);
       }
     }

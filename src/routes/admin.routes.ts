@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { addManualCronController, dashboardInfoCronController, deleteManualCronController, getManualCronsController, getSingleUserController, getUsersDetailsController, updateManualCronController, updateUserController } from '../controllers/adminControllers';
+import { addManualCronController, assignPackageToUserController, dashboardInfoCronController, deleteManualCronController, getManualCronsController, getSingleUserController, getUsersDetailsController, updateManualCronController, updateUserController } from '../controllers/adminControllers';
 import { clearAllTransactionHistoryController, clearCronHistoryController, getAdminCronHistoryController, getAllTransactionHistoryController } from '../controllers/logsController';
 const router = Router();
 
@@ -24,5 +24,10 @@ router.put('/crons/:domainId', updateManualCronController)
 
 // dashboard
 router.get('/dashboard-info', dashboardInfoCronController)
+
+
+// package
+router.post("/assing-package", assignPackageToUserController)
+
 
 export default router;

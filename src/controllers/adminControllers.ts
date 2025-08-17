@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import CronLog from "../models/CronLog";
 import User from "../models/User";
 import { IDomain, IManualDomain, TDomain, TManualDomain } from "../types/types";
+import Package from "../models/Package";
+import { addUserDomainsToTaskQueue, calculateExpirationDate, isValidMongoId } from "../utils/utilityFN";
 
 export const getUsersDetailsController = async (req: any, res: any) => {
     try {
@@ -61,7 +63,6 @@ export const getUsersDetailsController = async (req: any, res: any) => {
 };
 
 
-
 export const updateUserController = async (req: any, res: any) => {
     try {
         const user = await User.findById(req.params.id);
@@ -97,7 +98,10 @@ export const updateUserController = async (req: any, res: any) => {
             });
         }
 
-        if (status) user.status = status;
+        if (status){
+            user.status = status;
+            // 
+        }
 
         // Update subscription
         if (subscription) {
@@ -132,6 +136,8 @@ export const updateUserController = async (req: any, res: any) => {
                 );
                 if (domain && updatedDomain.status) {
                     domain.status = updatedDomain.status;
+
+
 
                     // TODO: If status becomes disabled, remove from BullMQ using jobId
                     // const jobId = `auto-manual-${user._id}-${domain.url}`;
@@ -401,5 +407,73 @@ export const dashboardInfoCronController = async (req: any, res: any) => {
     } catch (err) {
         console.error('Error updating manual domain:', err);
         return res.status(500).json({ message: 'Server error' });
+    }
+};
+
+export const assignPackageToUserController = async (req: any, res: any) => {
+    try {
+        const { packageId, userId } = req.body;
+
+        // Validate that both packageId and userId are provided and are valid MongoDB IDs.
+        if (!packageId || !userId) {
+            return res.status(400).json({ success: false, message: 'packageId and userId are required.' });
+        }
+
+        if (!isValidMongoId(packageId) || !isValidMongoId(userId)) {
+            return res.status(400).json({ success: false, message: 'Invalid packageId or userId format.' });
+        }
+
+        // Check if the package exists.
+        const existPackage = await Package.findById(packageId);
+        if (!existPackage) {
+            return res.status(404).json({ success: false, message: 'Package not found.' });
+        }
+
+        // Find the user and update their subscription.
+        const user = await User.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+
+        // If the user has this package, and it expires in more than 1 day, block the update.
+        const now = new Date();
+        const oneDayInMs = 24 * 60 * 60 * 1000;
+
+        if (
+            user.subscription &&
+            user.subscription.toString() === packageId.toString() &&
+            user.packageExpiresAt &&
+            (user.packageExpiresAt.getTime() - now.getTime()) > oneDayInMs
+        ) {
+            return res.status(400).json({ success: false, message: 'User already has this package, and it is still valid.' });
+        }
+
+
+        // Assign the new package to the user.
+
+        user.subscription = existPackage._id; // Assign the _id of the found package
+        user.packageExpiresAt = calculateExpirationDate(existPackage.validity);
+
+        await user.save();
+
+        const updatedUser = await User.findById(user._id).select('subscription defaultDomains manualDomains status packageExpiresAt')
+            .populate({
+                path: 'subscription',
+                model: 'Package',
+                select: 'intervalInMs status'
+            })
+            .lean();
+
+            console.log(updatedUser, ' updated user ')
+
+        const isAdded = await addUserDomainsToTaskQueue(updatedUser);
+        if (isAdded) {
+            return res.status(200).json({ success: true, message: 'Package successfully assigned to user.', data: user });
+        }
+        return res.status(200).json({ success: true, message: 'Package successfully assigned to user but could not added to the queue.', data: user });
+    } catch (err) {
+        console.error('Error assigning package to user:', err);
+        return res.status(500).json({ success: false, message: 'Server error.' });
     }
 };

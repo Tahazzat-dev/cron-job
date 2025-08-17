@@ -3,13 +3,12 @@ import { packageCleanupQueue } from '../queues/autoCron.queue';
 
 export async function schedulePackageCleanup(userId: string, packageExpiresAt: Date) {
   const jobId = `cleanup-${userId}`;
-
   await packageCleanupQueue.add(
     'remove-user-repeatables',
     { userId },
     {
       jobId,
-      delay: packageExpiresAt.getTime() - Date.now(), // delay until expiry
+      delay: packageExpiresAt.getTime() - Date.now(),
       removeOnComplete: true,
       removeOnFail: true,
     }

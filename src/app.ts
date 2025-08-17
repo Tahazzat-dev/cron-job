@@ -31,7 +31,7 @@ const init = async () => {
 init()
 
 // schedule auto cron job
-// require('./jobs/autoCron.scheduler')
+require('./jobs/autoCron.scheduler')
 
 
 

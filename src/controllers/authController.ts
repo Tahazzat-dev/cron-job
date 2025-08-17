@@ -4,12 +4,14 @@ import PasswordResetToken from "../models/PasswordResetToken";
 import User, { IUser } from "../models/User";
 import { autoCronQueue } from "../queues/autoCron.queue";
 import { sendOtpEmail, sendResetEmail } from "../services/mail";
-import { IUserDataToInsert, TDomain, UserPayload } from "../types/types";
+import { IAddDomainToQueueOptions, IDomain, IUserDataToInsert, TDomain, UserPayload } from "../types/types";
 import { createDefaultCronExecutableURL, sanitizeDomain } from "../utils/sanitize";
 import { generateTokens, verifyToken } from "../utils/token";
 import { generateOtp, setRefreshCookie } from "../utils/utilityFN";
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import { addDomainToQueue } from "../utils/schedule";
+import { schedulePackageCleanup } from "../jobs/schedulePackageCleanup.scheduler";
 
 export const registerController = async (req: any, res: any) => {
   try {
@@ -151,10 +153,10 @@ export const verifyRegistrationOTPController = async (req: any, res: any) => {
     }
 
     // 3. Lookup user
-    const user:any = await User.findOne({ email });
+    const user: any = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ error: true, message: 'User not found' });
-    } ;
+    };
 
     // 4. Update user status and assign default domain
     const defaultDomains: TDomain[] = [
@@ -169,35 +171,37 @@ export const verifyRegistrationOTPController = async (req: any, res: any) => {
 
     // 5. Assign free package if available and set schedule job to the queue
     const defaultPackage: IPackage | null = await Package.findOne({ name: 'Free', status: 'enabled' });
-
+    let packageExpiry: Date = new Date();
     if (defaultPackage) {
-      user.subscription = defaultPackage._id;
-      user.packageExpiresAt = defaultPackage.validity
+      packageExpiry = defaultPackage.validity
         ? new Date(Date.now() + defaultPackage.validity * 24 * 60 * 60 * 1000)
-        : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // fallback 2 days
-
-      // enqueue domain job for cron or monitoring
-      for (const domain of defaultDomains) {
-        const jobId = `auto-default-${user._id}-${domain.url}`;
-
-        await autoCronQueue.add(
-          'auto-execute',
-          { userId:user?._id , domain ,type:"default"},
-          {
-            jobId,
-            removeOnComplete: true,
-            removeOnFail: true,
-            repeat: {
-              every: defaultPackage?.intervalInMs || 7000 // 7s as fallback,
-            },
-          }
-        );
-      }
-
+        : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // fallback 2 days;\
+      user.subscription = defaultPackage._id;
+      user.packageExpiresAt = packageExpiry
     }
 
     await user.save();
     await OtpStore.deleteOne({ email });
+
+    // if (defaultPackage) {
+    //   (user.defaultDomains as IDomain[]).map(async domain => {
+    //     const dataToInsert: IAddDomainToQueueOptions = {
+    //       userId: user._id,
+    //       domain: {
+    //         url: createDefaultCronExecutableURL(user.domain),
+    //         _id: domain._id,
+    //         status: domain.status
+    //       },
+    //       type: "default",
+    //       intervalInMs: defaultPackage?.intervalInMs || 7000 // 7s as fallback,
+    //     }
+
+    //     await addDomainToQueue(dataToInsert)
+    //   })
+
+    //   // add clean up expiry to delete all autoschedule domains
+    //   await schedulePackageCleanup(user._id as string, new Date(packageExpiry))
+    // }
 
     // 6. Generate JWT tokens
     const tokens = generateTokens(user);

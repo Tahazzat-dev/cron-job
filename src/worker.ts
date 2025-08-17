@@ -1,6 +1,7 @@
 import { flushLogsToMongo } from "./jobs/cronLogFlusher";
 
 require("./workers/autoCron.worker")
+require("./workers/packageCleanup.worker")
 
 setInterval(async () => {
   try {

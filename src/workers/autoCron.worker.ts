@@ -10,6 +10,7 @@ export const autoCronWorker = new Worker(
   async job => {
     console.log(job.data,' job from worker')
     return;
+    
     const { userId, domain }: { userId: string; domain: TDomain } = job.data;
     const start = Date.now();
     const logKey = `cronlogs:${userId}`;
