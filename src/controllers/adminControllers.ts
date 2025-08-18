@@ -3,7 +3,7 @@ import CronLog from "../models/CronLog";
 import User from "../models/User";
 import { IDomain, IManualDomain, TDomain, TManualDomain } from "../types/types";
 import Package from "../models/Package";
-import { addUserDomainsToTaskQueue, calculateExpirationDate, isValidMongoId } from "../utils/utilityFN";
+import { addUserDomainsToTaskQueue, calculateExpirationDate, cleanAllPreviousTaskFromQueue, isValidMongoId } from "../utils/utilityFN";
 
 export const getUsersDetailsController = async (req: any, res: any) => {
     try {
@@ -77,12 +77,10 @@ export const updateUserController = async (req: any, res: any) => {
             password,
             mobile,
             status,
-            subscription,
             allowedToAddManualDomains,
             defaultDomains,
             manualDomains,
         } = req.body;
-
 
         if (name) user.name = name;
         if (email) user.email = email;
@@ -98,15 +96,8 @@ export const updateUserController = async (req: any, res: any) => {
             });
         }
 
-        if (status){
+        if (status) {
             user.status = status;
-            // 
-        }
-
-        // Update subscription
-        if (subscription) {
-            // TODO: Remove previous BullMQ repeat jobs if package/interval changes
-            user.subscription = subscription;
         }
 
         if (allowedToAddManualDomains !== undefined) {
@@ -121,9 +112,9 @@ export const updateUserController = async (req: any, res: any) => {
                 );
                 if (domain && updatedDomain.status) {
                     domain.status = updatedDomain.status;
-
-                    // TODO: If status becomes disabled, remove from BullMQ using jobId
-                    // const jobId = `auto-default-${user._id}-${domain.url}`;
+                }
+                if(domain && updatedDomain.url){
+                       domain.url = updatedDomain.url;
                 }
             }
         }
@@ -136,18 +127,46 @@ export const updateUserController = async (req: any, res: any) => {
                 );
                 if (domain && updatedDomain.status) {
                     domain.status = updatedDomain.status;
-
-
-
-                    // TODO: If status becomes disabled, remove from BullMQ using jobId
-                    // const jobId = `auto-manual-${user._id}-${domain.url}`;
                 }
             }
         }
 
         await user.save();
 
-        return res.json({ message: 'User updated successfully', user });
+
+        if (status || defaultDomains || manualDomains) {
+
+            await cleanAllPreviousTaskFromQueue(user._id);
+            const oneMinuteFromNow = new Date(Date.now() + 60 * 1000);
+
+            const updatedUser = await User.findOne({
+                _id: user._id,
+                packageExpiresAt: { $gte: oneMinuteFromNow },
+                status: 'enabled'
+            })
+                .select('subscription defaultDomains manualDomains status packageExpiresAt')
+                .populate({
+                    path: 'subscription',
+                    model: 'Package',
+                    select: 'intervalInMs status',
+                })
+                .lean();
+
+
+            if (!updatedUser) {
+                return res.json({ message: 'User updated successfully', user });
+            }
+
+            const isAdded = await addUserDomainsToTaskQueue(updatedUser);
+
+            if (!isAdded) {
+                return res.status(200).json({ success: true, message: 'User updated successfully but could not added to the queue.', data: user });
+            } else {
+                return res.json({ message: 'User updated successfully', user });
+            }
+        }
+
+
     } catch (err) {
         console.error('Error updating user:', err);
         return res.status(500).json({ message: 'Server error' });
@@ -465,13 +484,16 @@ export const assignPackageToUserController = async (req: any, res: any) => {
             })
             .lean();
 
-            console.log(updatedUser, ' updated user ')
-
+        await cleanAllPreviousTaskFromQueue(userId);
         const isAdded = await addUserDomainsToTaskQueue(updatedUser);
-        if (isAdded) {
-            return res.status(200).json({ success: true, message: 'Package successfully assigned to user.', data: user });
+
+        if (!isAdded) {
+            return res.status(200).json({ success: true, message: 'Package successfully assigned to user but could not added to the queue.', data: user });
         }
-        return res.status(200).json({ success: true, message: 'Package successfully assigned to user but could not added to the queue.', data: user });
+
+
+        return res.status(200).json({ success: true, message: 'Package successfully assigned to user.', data: user });
+
     } catch (err) {
         console.error('Error assigning package to user:', err);
         return res.status(500).json({ success: false, message: 'Server error.' });

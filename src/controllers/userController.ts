@@ -1,6 +1,6 @@
 import { isValidObjectId } from "mongoose";
 import User from "../models/User";
-import { IPayment, ITransaction, TDomain, TManualDomain, TokenTransaction, TxValidationParams } from "../types/types";
+import { IAddDomainToQueueOptions, IPayment, ITransaction, TDomain, TManualDomain, TokenTransaction, TxValidationParams } from "../types/types";
 import { extractPathAfterRootDomain, sanitizeDomain } from "../utils/sanitize";
 import axios from "axios";
 import { isTimestampOlderThan24Hours, isValidTokenTransaction } from "../utils/utilityFN";
@@ -9,6 +9,7 @@ import { error } from "console";
 import Transaction from "../models/Transaction";
 import Payment from "../models/Payment";
 import { autoCronQueue } from "../queues/autoCron.queue";
+import { addDomainToQueue } from "../utils/schedule";
 
 interface SanitizeResult {
   raw: string;
@@ -91,7 +92,7 @@ export const addDomainController = async (req: any, res: any) => {
       return res.status(400).json({ error: true, message: 'URL, title and executeInMs properties are required' });
     }
 
-    if(executeInMs < 3000){
+    if (executeInMs < 3000) {
       return res.status(403).json({ error: true, message: 'executeInMs must be larger than 3s' });
     }
 
@@ -109,10 +110,6 @@ export const addDomainController = async (req: any, res: any) => {
       return res.status(403).json({ error: true, message: 'You are not authorized to add manual domain please contact admin to enable that.' });
     }
 
-    if (!sanitized) {
-      return res.status(400).json({ error: true, message: 'Invalid domain format' });
-    }
-
     if (!user?.domain || sanitized !== user.domain) {
       return res.status(400).json({
         error: true,
@@ -126,18 +123,19 @@ export const addDomainController = async (req: any, res: any) => {
     const manualUrls = (user.manualDomains || []).map((d: TDomain) => d.url);
     const allUrls = new Set([...defaultUrls, ...manualUrls]);
 
-
+    console.log(allUrls, ' all urls from addDomainController')
 
     const urlAfterRoot = extractPathAfterRootDomain(url);
+    const fullUrl = sanitized + urlAfterRoot
 
-    if (allUrls.has(sanitized)) {
+    if (allUrls.has(fullUrl)) {
       return res.status(409).json({
         error: true,
-        message: ' This domain already exists in your account',
-        domain: sanitized
+        message: ' This url already exists in your account',
+        domain: url
       });
     }
-    console.log(user, ' current users ')
+
 
     const manualCronCount = user.manualCronCount || 0;
     const limit = user.subscription?.manualCronLimit || 0;
@@ -159,28 +157,34 @@ export const addDomainController = async (req: any, res: any) => {
       executeInMs,
     };
 
-    // add the manual domain in the task queue to execute 
-    const jobId = `auto-manual-${userId}-${fullSanitizedDomain}`;
-    await autoCronQueue.add(
-      'auto-execute',
-      { userId, domainObject, type: "manual" },
-      {
-        jobId,
-        removeOnComplete: true,
-        removeOnFail: true,
-        repeat: {
-          every: executeInMs || 10 * 60 * 1000, // fallback 10 mins
-        },
-      }
-    );
 
-    await User.updateOne(
+    // find the user and add the manual domain
+    const updatedUser = await User.findOneAndUpdate(
       { _id: userId },
       {
         $push: { manualDomains: domainObject },
-        $inc: { manualCronCount: 1 }
-      }
+        $inc: { manualCronCount: 1 },
+      },
+      { new: true, projection: { manualDomains: { $slice: -1 } } } // only return last inserted domain
     );
+
+    const insertedDomain = updatedUser?.manualDomains[0];
+
+
+    // add the manual domain in the task queue to execute 
+    if (insertedDomain) {
+      const dataToInsert: IAddDomainToQueueOptions = {
+        userId,
+        domain: {
+          url: insertedDomain.url,
+          _id: insertedDomain._id,
+          status: insertedDomain.status
+        },
+        type: "manual",
+        intervalInMs: insertedDomain.intervalInMs
+      }
+      await addDomainToQueue(dataToInsert)
+    }
 
     return res.status(200).json({
       success: true,
@@ -261,9 +265,9 @@ export const updateDomainStatusController = async (req: any, res: any) => {
       }
 
       // add/remove domain from the queue based on the status
-      if(status==="enabled"){
+      if (status === "enabled") {
 
-      }else{
+      } else {
 
       }
 

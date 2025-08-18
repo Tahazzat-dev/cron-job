@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { IAddDomainToQueueOptions, TDomain, TManualDomain, TokenTransaction, TxValidationParams } from "../types/types";
 import { addDomainToQueue } from "./schedule";
 import { schedulePackageCleanup } from "../jobs/schedulePackageCleanup.scheduler";
+import { autoCronQueue, packageCleanupQueue } from "../queues/autoCron.queue";
 
 export const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -54,18 +55,61 @@ export function calculateExpirationDate(validityInDays: number): Date {
 }
 
 
+// export const addDefaultDomainsToQueue = async (
+//   userId: string,
+//   default: TDomain[],
+//   intervalInMs: number
+// ): Promise<void> => {
+//   for (const domain of defaultDomains) {
+//     if (domain.status !== "enabled") continue;
+
+//     const dataToInsert: IAddDomainToQueueOptions = {
+//       userId,
+//       domain: {
+//         url: domain.url,
+//         _id: domain._id,
+//         status: domain.status,
+//       },
+//       type: "default",
+//       intervalInMs,
+//     };
+
+//     await addDomainToQueue(dataToInsert);
+//   }
+// };
+
+// Utility: Add manual domains to queue
+// export const addManualDomainsToQueue = async (
+//   userId: string,
+//   manualDomains: TManualDomain[]
+// ): Promise<void> => {
+//   for (const domain of manualDomains) {
+//     if (domain.status !== "enabled") continue;
+
+//     const dataToInsert: IAddDomainToQueueOptions = {
+//       userId,
+//       domain: {
+//         url: domain.url,
+//         _id: domain._id,
+//         status: domain.status,
+//       },
+//       type: "manual",
+//       intervalInMs: domain.intervalInMs,
+//     };
+
+//     await addDomainToQueue(dataToInsert);
+//   }
+// };
+
+
 export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => {
-  console.log(user, ' user from addUserDomainsToTaskQueue')
   try {
     const { _id, subscription } = user;
     const defaultDomains = user.defaultDomains?.filter((d: TDomain) => d.status === 'enabled') || [];
-
-    console.log(defaultDomains, ' user default domains from task queue');
-  
     const manualDomains = user.manualDomains?.filter((d: TManualDomain) => d.status === 'enabled') || [];
 
-    console.log(manualDomains, ' user manual domains from task queue');
-
+    console.log(defaultDomains, ' addUserDomainsToTaskQueue')
+    console.log(manualDomains, ' addUserDomainsToTaskQueue')
     const userId = _id as string;
 
     // add queue for default domains
@@ -111,9 +155,6 @@ export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => 
     }
 
     // add the clean up task to clean all the task when package expires.
-
-    console.log(user._id.toString() , 'await schedulePackageCleanup(user._id as string, new Date(user.packageExpiresAt))')
-    console.log(new Date(user.packageExpiresAt) , ' await schedulePackageCleanup(user._id as string, new Date(user.packageExpiresAt))')
     await schedulePackageCleanup(user._id as string, new Date(user.packageExpiresAt))
 
     return true;
@@ -122,6 +163,30 @@ export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => 
     return false;
   }
 }
+
+export const cleanAllPreviousTaskFromQueue = async (userId: string): Promise<boolean> => {
+  try {
+    const jobSchedulers = await autoCronQueue.getJobSchedulers();
+
+    for (const repeatJob of jobSchedulers) {
+      const jobUserId = repeatJob.template?.data?.userId;
+      if (jobUserId === userId.toString()) {
+        await autoCronQueue.removeJobScheduler(repeatJob.key);
+      }
+    }
+
+    // Remove cleanup job from packageCleanupQueue
+    const cleanupJobId = `cleanup-${userId.toString()}`;
+    const cleanupJob = await packageCleanupQueue.getJob(cleanupJobId);
+    if (cleanupJob) {
+      await cleanupJob.remove();
+    }
+    return true;
+  } catch (error) {
+    console.error(`[cleanPreviousTaskFromQueue] Failed for user: ${userId}`, error);
+    return false;
+  }
+};
 
 
 /*
