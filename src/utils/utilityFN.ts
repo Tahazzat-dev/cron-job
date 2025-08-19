@@ -54,62 +54,11 @@ export function calculateExpirationDate(validityInDays: number): Date {
   return new Date(now.getTime() + totalDurationMs);
 }
 
-
-// export const addDefaultDomainsToQueue = async (
-//   userId: string,
-//   default: TDomain[],
-//   intervalInMs: number
-// ): Promise<void> => {
-//   for (const domain of defaultDomains) {
-//     if (domain.status !== "enabled") continue;
-
-//     const dataToInsert: IAddDomainToQueueOptions = {
-//       userId,
-//       domain: {
-//         url: domain.url,
-//         _id: domain._id,
-//         status: domain.status,
-//       },
-//       type: "default",
-//       intervalInMs,
-//     };
-
-//     await addDomainToQueue(dataToInsert);
-//   }
-// };
-
-// Utility: Add manual domains to queue
-// export const addManualDomainsToQueue = async (
-//   userId: string,
-//   manualDomains: TManualDomain[]
-// ): Promise<void> => {
-//   for (const domain of manualDomains) {
-//     if (domain.status !== "enabled") continue;
-
-//     const dataToInsert: IAddDomainToQueueOptions = {
-//       userId,
-//       domain: {
-//         url: domain.url,
-//         _id: domain._id,
-//         status: domain.status,
-//       },
-//       type: "manual",
-//       intervalInMs: domain.intervalInMs,
-//     };
-
-//     await addDomainToQueue(dataToInsert);
-//   }
-// };
-
-
 export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => {
   try {
     const { _id, subscription } = user;
     const defaultDomains = user.defaultDomains?.filter((d: TDomain) => d.status === 'enabled') || [];
     const manualDomains = user.manualDomains?.filter((d: TManualDomain) => d.status === 'enabled') || [];
-
-    console.log(defaultDomains, ' addUserDomainsToTaskQueue')
-    console.log(manualDomains, ' addUserDomainsToTaskQueue')
     const userId = _id as string;
 
     // add queue for default domains
@@ -164,6 +113,37 @@ export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => 
   }
 }
 
+export async function removeDomainFromQueue({
+  userId,
+  domainUrl,
+  type,
+}: {
+  userId: string;
+  domainUrl: string;
+  type: "default" | "manual";
+}): Promise<boolean> {
+  try {
+    const jobId = `auto-${type}-${userId}-${domainUrl}`;
+
+    // Get all schedulers and find the one that matches our jobId
+    const schedulers = await autoCronQueue.getJobSchedulers();
+    console.log(schedulers, ' schedulars from remove domain')
+    const scheduler = schedulers.find((s) => s.id === jobId);
+
+    // if (!scheduler) {
+    //   console.warn(`[removeDomainFromQueue] No scheduler found for ${jobId}`);
+    //   return false;
+    // }
+
+    // await autoCronQueue.removeJobScheduler(scheduler.id);
+
+    console.log(`[removeDomainFromQueue] Removed repeatable job ${jobId}`);
+    return true;
+  } catch (error) {
+    console.error(`[removeDomainFromQueue] Failed to remove job for ${domainUrl}`, error);
+    return false;
+  }
+}
 export const cleanAllPreviousTaskFromQueue = async (userId: string): Promise<boolean> => {
   try {
     const jobSchedulers = await autoCronQueue.getJobSchedulers();

@@ -1,9 +1,8 @@
 import User from '../models/User';
 import { autoCronQueue, packageCleanupQueue } from '../queues/autoCron.queue';
-import { IAddDomainToQueueOptions, TDomain, TManualDomain } from '../types/types';
+import { IAddDomainToQueueOptions, TManualDomain } from '../types/types';
 import { addDomainToQueue } from '../utils/schedule';
 import { addUserDomainsToTaskQueue } from '../utils/utilityFN';
-import { schedulePackageCleanup } from './schedulePackageCleanup.scheduler';
 
 export async function initializeAutoScheduler() {
   await clearAllRepeatableJobs()
@@ -40,13 +39,54 @@ export async function initializeAutoScheduler() {
   } catch (err) {
     console.error(`[${new Date().toISOString()}] Error in scheduleAutoCrons:`, err);
   }
+
+
+  // load admins manual domains
+  try {
+    const admins = await User.find({
+      status: 'enabled',
+      role: 'admin',
+    })
+      .select('manualDomains').lean();
+
+    if (!admins) {
+      console.log(`[${new Date().toISOString()}] No eligible admins for autocron.`);
+      return;
+    }
+
+    for (const user of admins) {
+      const adminManualDomains = user.manualDomains?.filter((d: TManualDomain) => d.status === 'enabled') || [];
+      // Manual domains use domain-specific interval
+      for (const domain of adminManualDomains) {
+
+        // skip for disabled domain
+        if (domain.status !== "enabled") continue;
+
+        const dataToInsert: IAddDomainToQueueOptions = {
+          userId: user._id as string,
+          domain: {
+            url: domain.url,
+            _id: domain._id,
+            status: domain.status
+          },
+          type: "manual",
+          intervalInMs: domain.intervalInMs
+        }
+
+        await addDomainToQueue(dataToInsert)
+      }
+    }
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] Error in scheduleAutoCrons:`, err);
+  }
 }
 
 
 export async function clearAllRepeatableJobs() {
   const schedulers = await autoCronQueue.getJobSchedulers();
   for (const scheduler of schedulers) {
-    console.log(scheduler, ' schedular job key')
+    console.log(scheduler.id, ' schedular')
+    console.log(scheduler?.template?.data?.domain?._id, ' schedular job key')
     if (scheduler?.key) {
       await autoCronQueue.removeJobScheduler(scheduler?.key);
     } else {

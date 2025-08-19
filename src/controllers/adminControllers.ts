@@ -1,9 +1,11 @@
 import mongoose from "mongoose";
 import CronLog from "../models/CronLog";
 import User from "../models/User";
-import { IDomain, IManualDomain, TDomain, TManualDomain } from "../types/types";
+import { IAddDomainToQueueOptions, IDomain, IManualDomain, TDomain, TManualDomain } from "../types/types";
 import Package from "../models/Package";
 import { addUserDomainsToTaskQueue, calculateExpirationDate, cleanAllPreviousTaskFromQueue, isValidMongoId } from "../utils/utilityFN";
+import { sanitizeDomain } from "../utils/sanitize";
+import { addDomainToQueue } from "../utils/schedule";
 
 export const getUsersDetailsController = async (req: any, res: any) => {
     try {
@@ -113,8 +115,8 @@ export const updateUserController = async (req: any, res: any) => {
                 if (domain && updatedDomain.status) {
                     domain.status = updatedDomain.status;
                 }
-                if(domain && updatedDomain.url){
-                       domain.url = updatedDomain.url;
+                if (domain && updatedDomain.url) {
+                    domain.url = updatedDomain.url;
                 }
             }
         }
@@ -194,8 +196,14 @@ export const getSingleUserController = async (req: any, res: any) => {
 };
 
 export const addManualCronController = async (req: any, res: any) => {
+
     try {
-        const { executeInMs, url, status } = req.body;
+        const { executeInMs, url, title, status } = req.body;
+
+        const sanitized = sanitizeDomain(url);
+        if (!sanitized) {
+            return res.status(400).json({ error: true, message: `Invalid domain: ${url}` });
+        }
 
         const delay = Number(executeInMs);
 
@@ -206,11 +214,18 @@ export const addManualCronController = async (req: any, res: any) => {
             });
         }
 
-        if (delay || delay < 3000) {
+        if (!delay || delay < 3000) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid input. `executeInMs` must be at least 3000 ms.',
             });
+        }
+
+        if (!title) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cron title is required',
+            })
         }
 
         // Find the admin user (or whoever should own this cron)\
@@ -228,40 +243,40 @@ export const addManualCronController = async (req: any, res: any) => {
         admin.manualDomains = admin.manualDomains || [];
 
         const exists = admin.manualDomains?.some((d: TManualDomain) => d.url === url);
-
+        const objectId = new mongoose.Types.ObjectId();
         if (!exists) {
             admin.manualDomains.push({
-                _id: new mongoose.Types.ObjectId(),
+                _id: objectId,
                 url,
+                title,
                 status: (status as string) || 'enabled',
                 executeInMs: delay || (1000 * 60 * 10) // default 10 min
             });
             await admin.save();
+
+
+            // add to the task queue
+            if (status === "enabled") {
+                const dataToInsert: IAddDomainToQueueOptions = {
+                    userId: req.user._id,
+                    domain: {
+                        url: url,
+                        _id: objectId.toString(),
+                        status: "enabled"
+                    },
+                    type: "manual",
+                    intervalInMs: delay
+                }
+
+                await addDomainToQueue(dataToInsert)
+            }
+
         } else {
             return res.status(409).json({
                 success: false,
                 message: "This domain already exists in your database"
             })
         }
-
-        // Add manual cron job with delay
-        // TODO: have to add to the queue.
-        // const job = await manualCronQueue.add(
-        //   'manual-execute',
-        //   {
-        //     userId: admin._id,
-        //     domain: {
-        //       url,
-        //       status: status ?? 'enabled',
-        //     },
-        //     type: 'manual',
-        //   },
-        //   {
-        //     delay,
-        //     removeOnComplete: true,
-        //     removeOnFail: true,
-        //   }
-        // );
 
         return res.status(201).json({
             success: true,
@@ -274,6 +289,8 @@ export const addManualCronController = async (req: any, res: any) => {
         console.error('Error clearing cron history:', err);
         return res.status(500).json({ message: 'Server error' });
     }
+
+
 }
 
 export const getManualCronsController = async (req: any, res: any) => {
@@ -329,13 +346,19 @@ export const deleteManualCronController = async (req: any, res: any) => {
 export const updateManualCronController = async (req: any, res: any) => {
     try {
         const { domainId } = req.params;
-        const { url, status, executeInMs } = req.body;
+        const { status, executeInMs } = req.body;
 
-        if (!url && !status && !executeInMs) {
-            return res.status(400).json({ success: false, message: 'At least one of url, status, or executeInMs must be provided', });
+        const allowedStatus = ['enabled','disabled']
+
+        if (!status && !executeInMs) {
+            return res.status(400).json({ success: false, message: 'At least one of status, or executeInMs must be provided', });
         }
 
-        if (!domainId) {
+        if(!allowedStatus.includes(status)){
+             return res.status(400).json({ success: false, message: 'Status must be either enabled or disabled', });
+        }
+
+        if (!domainId || !isValidMongoId(domainId)) {
             return res.status(400).json({ success: false, message: 'Domain ID is required' });
         }
 
@@ -354,9 +377,15 @@ export const updateManualCronController = async (req: any, res: any) => {
         }
 
         // Update allowed fields
-        if (url !== undefined) domainToUpdate.url = url;
         if (status !== undefined) domainToUpdate.status = status;
         if (executeInMs !== undefined) domainToUpdate.executeInMs = executeInMs;
+
+        if(status==="disabled"){
+            // delete the domain from the task queue
+        }else{
+            // add domain to the task queue
+
+        }
 
         await admin.save();
 
