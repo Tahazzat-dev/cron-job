@@ -75,7 +75,8 @@ export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => 
           status: domain.status
         },
         type: "default",
-        intervalInMs: subscription.intervalInMs
+        intervalInMs: subscription.intervalInMs,
+        expires: new Date(user.packageExpiresAt),
       }
 
 
@@ -97,14 +98,12 @@ export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => 
           status: domain.status
         },
         type: "manual",
-        intervalInMs: domain.intervalInMs
+        intervalInMs: domain.intervalInMs,
+        expires: new Date(user.packageExpiresAt),
       }
 
       await addDomainToQueue(dataToInsert)
     }
-
-    // add the clean up task to clean all the task when package expires.
-    await schedulePackageCleanup(user._id as string, new Date(user.packageExpiresAt))
 
     return true;
   } catch (error) {
@@ -123,27 +122,60 @@ export async function removeDomainFromQueue({
   type: "default" | "manual";
 }): Promise<boolean> {
   try {
-    const jobId = `auto-${type}-${userId}-${domainUrl}`;
-
-    // Get all schedulers and find the one that matches our jobId
     const schedulers = await autoCronQueue.getJobSchedulers();
-    console.log(schedulers, ' schedulars from remove domain')
-    const scheduler = schedulers.find((s) => s.id === jobId);
 
-    // if (!scheduler) {
-    //   console.warn(`[removeDomainFromQueue] No scheduler found for ${jobId}`);
-    //   return false;
-    // }
+    // Find the exact scheduler that matches this user + domain
+    const targetScheduler = schedulers.find(
+      (scheduler) =>
+        scheduler?.name === "auto-execute" &&
+        scheduler?.template?.data?.userId?.toString() === userId.toString() &&
+        scheduler?.template?.data?.domain?.url === domainUrl &&
+        scheduler?.template?.data?.type === type
+    );
 
-    // await autoCronQueue.removeJobScheduler(scheduler.id);
+    if (!targetScheduler) {
+      console.warn(
+        `[removeDomainFromQueue] No repeatable job found for user=${userId}, domain=${domainUrl}, type=${type}`
+      );
+      return false;
+    }
+    await autoCronQueue.removeJobScheduler(targetScheduler.key);
 
-    console.log(`[removeDomainFromQueue] Removed repeatable job ${jobId}`);
+    console.log(
+      `[removeDomainFromQueue] Removed repeatable job for user=${userId}, domain=${domainUrl}, type=${type}`
+    );
     return true;
   } catch (error) {
-    console.error(`[removeDomainFromQueue] Failed to remove job for ${domainUrl}`, error);
+    console.error(
+      `[removeDomainFromQueue] Failed to remove job for ${domainUrl}`,
+      error
+    );
     return false;
   }
 }
+
+
+export async function updateDomainInQueue(options: IAddDomainToQueueOptions): Promise<boolean> {
+  const { userId, domain, type } = options;
+
+  // 1. Remove existing job
+  await removeDomainFromQueue({ userId, domainUrl: domain.url, type });
+
+  // 2. Add new job with updated settings
+  const success = await addDomainToQueue(options);
+
+  return success;
+}
+
+// await updateDomainInQueue({
+//   userId: "123",
+//   domain: { url: "example.com/cron", _id: "abc", status: "enabled" },
+//   type: "manual",
+//   intervalInMs: 5 * 60 * 1000, // new interval
+// });
+
+
+
 export const cleanAllPreviousTaskFromQueue = async (userId: string): Promise<boolean> => {
   try {
     const jobSchedulers = await autoCronQueue.getJobSchedulers();

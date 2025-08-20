@@ -56,6 +56,7 @@ export interface IAddDomainToQueueOptions {
     domain: TDomainType;
     type: DomainType;
     intervalInMs: number;
+    expires?:Date;
 }
 
 

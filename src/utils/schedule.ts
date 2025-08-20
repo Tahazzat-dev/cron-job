@@ -10,6 +10,7 @@ export async function addDomainToQueue({
     domain,
     type,
     intervalInMs,
+    expires
 }: IAddDomainToQueueOptions): Promise<boolean> {
     try {
         const jobId = `auto-${type}-${userId}-${domain.url}`;
@@ -23,6 +24,7 @@ export async function addDomainToQueue({
                 removeOnFail: true,
                 repeat: {
                     every: repeatInterval,
+                    endDate:expires
                 },
             }
         );

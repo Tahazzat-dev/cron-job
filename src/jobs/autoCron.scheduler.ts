@@ -6,6 +6,45 @@ import { addUserDomainsToTaskQueue } from '../utils/utilityFN';
 
 export async function initializeAutoScheduler() {
   await clearAllRepeatableJobs()
+
+  // load admins manual domains
+  try {
+
+    console.log("executed")
+    const admins = await User.find({
+      status: 'enabled',
+      role: 'admin',
+    })
+      .select('manualDomains').lean();
+    if (!admins) {
+      console.log(`[${new Date().toISOString()}] No eligible admins for autocron.`);
+      return;
+    }
+
+    for (const user of admins) {
+      const adminManualDomains = user.manualDomains?.filter((d: TManualDomain) => d.status === 'enabled') || [];
+      // Manual domains use domain-specific interval
+      for (const domain of adminManualDomains) {
+        // skip for disabled domain 
+        if (domain.status !== "enabled") continue;
+
+        const dataToInsert: IAddDomainToQueueOptions = {
+          userId: user._id as string,
+          domain: {
+            url: domain?.url,
+            _id: domain?._id,
+            status: domain?.status
+          },
+          type: "manual",
+          intervalInMs: domain?.executeInMs
+        }
+        await addDomainToQueue(dataToInsert)
+      }
+    }
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] Error in scheduleAutoCrons:`, err);
+  }
+
   // add the users domain fresh starts
   try {
     const oneMinuteFromNow = new Date(Date.now() + 60 * 1000)
@@ -39,58 +78,16 @@ export async function initializeAutoScheduler() {
   } catch (err) {
     console.error(`[${new Date().toISOString()}] Error in scheduleAutoCrons:`, err);
   }
-
-
-  // load admins manual domains
-  try {
-    const admins = await User.find({
-      status: 'enabled',
-      role: 'admin',
-    })
-      .select('manualDomains').lean();
-
-    if (!admins) {
-      console.log(`[${new Date().toISOString()}] No eligible admins for autocron.`);
-      return;
-    }
-
-    for (const user of admins) {
-      const adminManualDomains = user.manualDomains?.filter((d: TManualDomain) => d.status === 'enabled') || [];
-      // Manual domains use domain-specific interval
-      for (const domain of adminManualDomains) {
-
-        // skip for disabled domain
-        if (domain.status !== "enabled") continue;
-
-        const dataToInsert: IAddDomainToQueueOptions = {
-          userId: user._id as string,
-          domain: {
-            url: domain.url,
-            _id: domain._id,
-            status: domain.status
-          },
-          type: "manual",
-          intervalInMs: domain.intervalInMs
-        }
-
-        await addDomainToQueue(dataToInsert)
-      }
-    }
-  } catch (err) {
-    console.error(`[${new Date().toISOString()}] Error in scheduleAutoCrons:`, err);
-  }
 }
 
 
 export async function clearAllRepeatableJobs() {
   const schedulers = await autoCronQueue.getJobSchedulers();
   for (const scheduler of schedulers) {
-    console.log(scheduler.id, ' schedular')
-    console.log(scheduler?.template?.data?.domain?._id, ' schedular job key')
     if (scheduler?.key) {
       await autoCronQueue.removeJobScheduler(scheduler?.key);
     } else {
-      // console.warn(`[Cleanup] Skipping invalid scheduler:`, scheduler);
+      console.warn(`[Cleanup] Skipping invalid scheduler:`, scheduler);
     }
   }
   console.log(`[${new Date().toISOString()}] Cleared all repeatable jobs from autoCronQueue`);

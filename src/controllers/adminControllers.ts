@@ -3,7 +3,7 @@ import CronLog from "../models/CronLog";
 import User from "../models/User";
 import { IAddDomainToQueueOptions, IDomain, IManualDomain, TDomain, TManualDomain } from "../types/types";
 import Package from "../models/Package";
-import { addUserDomainsToTaskQueue, calculateExpirationDate, cleanAllPreviousTaskFromQueue, isValidMongoId } from "../utils/utilityFN";
+import { addUserDomainsToTaskQueue, calculateExpirationDate, cleanAllPreviousTaskFromQueue, isValidMongoId, removeDomainFromQueue } from "../utils/utilityFN";
 import { sanitizeDomain } from "../utils/sanitize";
 import { addDomainToQueue } from "../utils/schedule";
 
@@ -265,7 +265,7 @@ export const addManualCronController = async (req: any, res: any) => {
                         status: "enabled"
                     },
                     type: "manual",
-                    intervalInMs: delay
+                    intervalInMs: delay,
                 }
 
                 await addDomainToQueue(dataToInsert)
@@ -325,6 +325,8 @@ export const deleteManualCronController = async (req: any, res: any) => {
         const originalLength = admin.manualDomains?.length || 0;
 
         // Filter out the domain with the matching _id
+
+        const domainToRemove = (admin.manualDomains || []).find((d: any) => d?._id?.toString() === domainId);
         admin.manualDomains = (admin.manualDomains || []).filter(
             (domain: any) => domain._id.toString() !== domainId
         );
@@ -334,6 +336,9 @@ export const deleteManualCronController = async (req: any, res: any) => {
         }
 
         await admin.save();
+
+        // delete the manual domain from the queue.
+        await removeDomainFromQueue({ userId: admin?._id, domainUrl: domainToRemove?.url, type: 'manual' })
 
         return res.status(200).json({ success: true, message: 'Manual domain deleted successfully' });
 
@@ -348,55 +353,87 @@ export const updateManualCronController = async (req: any, res: any) => {
         const { domainId } = req.params;
         const { status, executeInMs } = req.body;
 
-        const allowedStatus = ['enabled','disabled']
-
+        // Validation
         if (!status && !executeInMs) {
-            return res.status(400).json({ success: false, message: 'At least one of status, or executeInMs must be provided', });
+            return res.status(400).json({
+                success: false,
+                message: "At least one of 'status' or 'executeInMs' must be provided",
+            });
         }
 
-        if(!allowedStatus.includes(status)){
-             return res.status(400).json({ success: false, message: 'Status must be either enabled or disabled', });
+        if (status && !["enabled", "disabled"].includes(status)) {
+            return res
+                .status(400)
+                .json({ success: false, message: "Status must be either enabled or disabled" });
         }
 
         if (!domainId || !isValidMongoId(domainId)) {
-            return res.status(400).json({ success: false, message: 'Domain ID is required' });
+            return res
+                .status(400)
+                .json({ success: false, message: "Valid Domain ID is required" });
         }
 
         const admin = await User.findById(req.user._id);
-
-        if (!admin || admin.role !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Access denied' });
+        if (!admin || admin.role !== "admin") {
+            return res.status(403).json({ success: false, message: "Access denied" });
         }
 
+        // Find domain
         const domainToUpdate = (admin.manualDomains || []).find(
             (domain: any) => domain._id.toString() === domainId
         );
 
         if (!domainToUpdate) {
-            return res.status(404).json({ success: false, message: 'Manual domain not found' });
+            return res
+                .status(404)
+                .json({ success: false, message: "Manual domain not found" });
         }
 
-        // Update allowed fields
-        if (status !== undefined) domainToUpdate.status = status;
-        if (executeInMs !== undefined) domainToUpdate.executeInMs = executeInMs;
-
-        if(status==="disabled"){
-            // delete the domain from the task queue
-        }else{
-            // add domain to the task queue
-
+        if (status === domainToUpdate?.status && executeInMs === domainToUpdate?.executeInMs) {
+            return res
+                .status(400)
+                .json({ success: false, message: "Noting to update" });
         }
 
+        // Update fields
+        if (status) domainToUpdate.status = status;
+        if (executeInMs) domainToUpdate.executeInMs = executeInMs;
+
+        // Queue handling
+        if (status === "disabled") {
+            // Remove job
+            await removeDomainFromQueue({
+                userId: admin._id.toString(),
+                domainUrl: domainToUpdate.url,
+                type: "manual",
+            });
+        } else {
+            // Add / update job
+            const dataToInsert: IAddDomainToQueueOptions = {
+                userId: admin._id.toString(),
+                domain: {
+                    url: domainToUpdate.url,
+                    _id: domainToUpdate._id,
+                    status: domainToUpdate.status,
+                },
+                type: "manual",
+                intervalInMs: domainToUpdate.executeInMs,
+            };
+
+            await addDomainToQueue(dataToInsert);
+        }
+
+        // Save user updates
         await admin.save();
 
         return res.status(200).json({
             success: true,
-            message: 'Manual domain updated successfully',
+            message: "Manual domain updated successfully",
             domain: domainToUpdate,
         });
     } catch (err) {
-        console.error('Error updating manual domain:', err);
-        return res.status(500).json({ message: 'Server error' });
+        console.error("Error updating manual domain:", err);
+        return res.status(500).json({ message: "Server error" });
     }
 };
 

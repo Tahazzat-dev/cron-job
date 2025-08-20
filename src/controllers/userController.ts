@@ -3,7 +3,7 @@ import User from "../models/User";
 import { IAddDomainToQueueOptions, IPayment, ITransaction, TDomain, TManualDomain, TokenTransaction, TxValidationParams } from "../types/types";
 import { extractPathAfterRootDomain, sanitizeDomain } from "../utils/sanitize";
 import axios from "axios";
-import { isTimestampOlderThan24Hours, isValidTokenTransaction } from "../utils/utilityFN";
+import { calculateExpirationDate, isTimestampOlderThan24Hours, isValidTokenTransaction, removeDomainFromQueue } from "../utils/utilityFN";
 import Package from "../models/Package";
 import { error } from "console";
 import Transaction from "../models/Transaction";
@@ -123,8 +123,6 @@ export const addDomainController = async (req: any, res: any) => {
     const manualUrls = (user.manualDomains || []).map((d: TDomain) => d.url);
     const allUrls = new Set([...defaultUrls, ...manualUrls]);
 
-    console.log(allUrls, ' all urls from addDomainController')
-
     const urlAfterRoot = extractPathAfterRootDomain(url);
     const fullUrl = sanitized + urlAfterRoot
 
@@ -181,7 +179,8 @@ export const addDomainController = async (req: any, res: any) => {
           status: insertedDomain.status
         },
         type: "manual",
-        intervalInMs: insertedDomain.intervalInMs
+        intervalInMs: insertedDomain.intervalInMs,
+        expires: calculateExpirationDate(user?.subscription?.validity)
       }
       await addDomainToQueue(dataToInsert)
     }
@@ -199,7 +198,7 @@ export const addDomainController = async (req: any, res: any) => {
 };
 
 
-export const removeDomainController = async (req: any, res: any) => {
+export const removeDomainsController = async (req: any, res: any) => {
   try {
     const userId = req.user.id;
     const { domainIds }: { domainIds: string[] } = req.body;
@@ -240,6 +239,46 @@ export const removeDomainController = async (req: any, res: any) => {
   }
 };
 
+export const removeDomainController = async (req: any, res: any) => {
+  try {
+    const { domainId } = req.params;
+
+    if (!domainId) {
+      return res.status(400).json({ success: false, message: 'Domain ID is required' });
+    }
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const originalLength = user.manualDomains?.length || 0;
+
+    // Filter out the domain with the matching _id
+
+    const domainToRemove = (user.manualDomains || []).find((d: any) => d?._id?.toString() === domainId);
+    user.manualDomains = (user.manualDomains || []).filter(
+      (domain: any) => domain._id.toString() !== domainId
+    );
+
+    if (user.manualDomains.length === originalLength) {
+      return res.status(404).json({ success: false, message: 'Manual domain not found' });
+    }
+
+    await user.save();
+
+    // delete the manual domain from the queue.
+    await removeDomainFromQueue({ userId: user?._id, domainUrl: domainToRemove?.url, type: 'manual' })
+
+    return res.status(200).json({ success: true, message: 'Manual domain deleted successfully' });
+
+  } catch (err) {
+    console.error('Error deleting manual domain:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
 export const updateDomainStatusController = async (req: any, res: any) => {
   try {
     const userId = req.user.id;
@@ -249,14 +288,14 @@ export const updateDomainStatusController = async (req: any, res: any) => {
       return res.status(400).json({ error: true, message: 'Invalid domain ID or status' });
     }
 
-    const user = await User.findById(userId);
+    const user: any = await User.findById(userId).populate('subscription').lean();
     if (!user) return res.status(404).json({ error: true, message: 'User not found' });
 
     let updatedDomainType: 'manual' | 'default' | null = null;
     let updatedDomain = null;
 
     // Try updating manualDomains
-    if (user.manualDomains) {
+    if (user?.manualDomains) {
       const domain = user.manualDomains.find((d: any) => d._id.toString() === domainId);
       if (domain) {
         domain.status = status;
@@ -266,9 +305,27 @@ export const updateDomainStatusController = async (req: any, res: any) => {
 
       // add/remove domain from the queue based on the status
       if (status === "enabled") {
-
+        // Remove job
+        await removeDomainFromQueue({
+          userId: user._id?.toString(),
+          domainUrl: domain?.url,
+          type: "manual",
+        });
       } else {
+        // Add / update job
+        const dataToInsert: IAddDomainToQueueOptions = {
+          userId: user._id.toString(),
+          domain: {
+            url: domain.url,
+            _id: domain._id,
+            status: domain.status,
+          },
+          type: "manual",
+          intervalInMs: domain.executeInMs,
+          expires: calculateExpirationDate(user?.subscription?.validity)
+        };
 
+        await addDomainToQueue(dataToInsert);
       }
 
     }
