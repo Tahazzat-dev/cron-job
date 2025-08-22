@@ -168,7 +168,6 @@ export const addDomainController = async (req: any, res: any) => {
 
     const insertedDomain = updatedUser?.manualDomains[0];
 
-
     // add the manual domain in the task queue to execute 
     if (insertedDomain) {
       const dataToInsert: IAddDomainToQueueOptions = {
@@ -179,7 +178,7 @@ export const addDomainController = async (req: any, res: any) => {
           status: insertedDomain.status
         },
         type: "manual",
-        intervalInMs: insertedDomain.intervalInMs,
+        intervalInMs: insertedDomain.executeInMs,
         expires: calculateExpirationDate(user?.subscription?.validity)
       }
       await addDomainToQueue(dataToInsert)

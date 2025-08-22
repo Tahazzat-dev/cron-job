@@ -3,6 +3,7 @@ import { IAddDomainToQueueOptions, TDomain, TManualDomain, TokenTransaction, TxV
 import { addDomainToQueue } from "./schedule";
 import { schedulePackageCleanup } from "../jobs/schedulePackageCleanup.scheduler";
 import { autoCronQueue, packageCleanupQueue } from "../queues/autoCron.queue";
+import User from "../models/User";
 
 export const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -98,10 +99,14 @@ export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => 
           status: domain.status
         },
         type: "manual",
-        intervalInMs: domain.intervalInMs,
+        intervalInMs: domain.executeInMs,
         expires: new Date(user.packageExpiresAt),
       }
 
+      // first remove if already exists
+      await removeDomainFromQueue({ userId, domainUrl: domain.url, type: "manual" })
+
+      // add domain.
       await addDomainToQueue(dataToInsert)
     }
 
@@ -162,18 +167,8 @@ export async function updateDomainInQueue(options: IAddDomainToQueueOptions): Pr
   await removeDomainFromQueue({ userId, domainUrl: domain.url, type });
 
   // 2. Add new job with updated settings
-  const success = await addDomainToQueue(options);
-
-  return success;
+  return await addDomainToQueue(options);
 }
-
-// await updateDomainInQueue({
-//   userId: "123",
-//   domain: { url: "example.com/cron", _id: "abc", status: "enabled" },
-//   type: "manual",
-//   intervalInMs: 5 * 60 * 1000, // new interval
-// });
-
 
 
 export const cleanAllPreviousTaskFromQueue = async (userId: string): Promise<boolean> => {
@@ -201,27 +196,71 @@ export const cleanAllPreviousTaskFromQueue = async (userId: string): Promise<boo
 };
 
 
-/*
- Example use
- const transactions: TokenTransaction[] = [/* paste JSON array here ];
+export const updateJobsForPackageUsers = async (packageId: string) => {
+  try {
+    const oneMinuteFromNow = new Date(Date.now() + 60 * 1000)
+    const users = await User.find({
+      packageExpiresAt: { $gte: oneMinuteFromNow },
+      status: 'enabled',
+      role: 'user',
+      subscription: packageId,
+    })
+      .select('subscription defaultDomains manualDomains status packageExpiresAt')
+      .populate({
+        path: 'subscription',
+        model: 'Package',
+        select: 'intervalInMs status'
+      })
+      .lean();
 
-const expectedParams: TxValidationParams = {
-  expectedHash: "0xa2b64119d7301acce0c70c1e367d16f79a20b7d4297be1026b014e41a51c9384",
-  expectedTo: "0x53f78a071d04224b8e254e243fffc6d9f2f3fa23",
-  expectedFrom: "0x9399f9bc69f92e025a99d2a794e4db0c42b56751",
-  expectedTokenContract: "0x55d398326f99059ff775485246999027b3197955",
-  expectedValueInWei: "10000000000000000000", // 10 USDT
+    if (!users.length) {
+      console.log(`[${new Date().toISOString()}] No eligible users to update.`);
+      return;
+    }
+
+    for (const user of users) {
+      const added = await addUserDomainsToTaskQueue(user);
+      if (!added) {
+        console.log("Error occured adding domain to task queue")
+      }
+    }
+  } catch (err) {
+    console.error("Error removing jobs for package users:", err);
+  }
 };
 
-const match = transactions.find((tx) =>
-  isValidTokenTransaction(tx, expectedParams)
-);
 
-if (match) {
-  console.log("✅ Payment confirmed:", match.hash);
-} else {
-  console.log("❌ No matching valid transaction found.");
+export const removeJobsForPackageUsers = async (packageId: string) => {
+  const twentySecondsFromNow = new Date(Date.now() + 20 * 1000)
+  const users = await User.find({
+    packageExpiresAt: { $gte: twentySecondsFromNow },
+    status: 'enabled',
+    role: 'user',
+    subscription: packageId,
+  }).lean()
+
+  if (!users.length) {
+    console.log(`[${new Date().toISOString()}] No eligible users to remove.`);
+    return;
+  }
+
+  for (const user of users) {
+    const { _id } = user;
+    const defaultDomains = user.defaultDomains?.filter((d: TDomain) => d.status === 'enabled') || [];
+    const manualDomains = user.manualDomains?.filter((d: TManualDomain) => d.status === 'enabled') || [];
+    const userId = _id as string;
+
+    // add queue for default domains
+    for (const domain of defaultDomains) {
+      await removeDomainFromQueue({ type: "default", userId, domainUrl: domain.url })
+    }
+
+    // Manual domains use domain-specific interval
+    for (const domain of manualDomains) {
+
+      // skip for disabled domain
+      if (domain.status !== "enabled") continue;
+      await removeDomainFromQueue({ userId, domainUrl: domain.url, type: "manual" })
+    }
+  }
 }
-
-
-*/

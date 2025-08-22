@@ -82,16 +82,18 @@ export const updateUserController = async (req: any, res: any) => {
             allowedToAddManualDomains,
             defaultDomains,
             manualDomains,
+            domain,
         } = req.body;
 
         if (name) user.name = name;
         if (email) user.email = email;
         if (password) user.password = password;
         if (mobile) user.mobile = mobile;
+        if (domain) user.domain = domain;
 
         const validStatuses = ['enabled', 'disabled', 'deleted', 'blocked']
 
-        if (!validStatuses.includes(status)) {
+        if (status && !validStatuses.includes(status)) {
             return res.status(400).json({
                 error: true,
                 message: `Invalid status. Status should be : "enabled", "disabled", "deleted", "blocked".`,

@@ -147,7 +147,6 @@ export const verifyRegistrationOTPController = async (req: any, res: any) => {
 
     // 2. Lookup OTP record
     const record = await OtpStore.findOne({ email });
-    console.log(record, ' record from otp store');
     if (!record || record?.otp !== otp || record.expiresAt < new Date()) {
       return res.status(400).json({ error: true, message: 'Invalid or expired OTP' });
     }
@@ -183,25 +182,23 @@ export const verifyRegistrationOTPController = async (req: any, res: any) => {
     await user.save();
     await OtpStore.deleteOne({ email });
 
-    // if (defaultPackage) {
-    //   (user.defaultDomains as IDomain[]).map(async domain => {
-    //     const dataToInsert: IAddDomainToQueueOptions = {
-    //       userId: user._id,
-    //       domain: {
-    //         url: createDefaultCronExecutableURL(user.domain),
-    //         _id: domain._id,
-    //         status: domain.status
-    //       },
-    //       type: "default",
-    //       intervalInMs: defaultPackage?.intervalInMs || 7000 // 7s as fallback,
-    //     }
+    if (defaultPackage) {
+      (user.defaultDomains as IDomain[]).map(async domain => {
+        const dataToInsert: IAddDomainToQueueOptions = {
+          userId: user._id,
+          domain: {
+            url: createDefaultCronExecutableURL(user.domain),
+            _id: domain._id,
+            status: domain.status
+          },
+          type: "default",
+          intervalInMs: defaultPackage?.intervalInMs || 7000, // 7s as fallback,
+          expires: new Date(user.packageExpiresAt),
+        }
 
-    //     await addDomainToQueue(dataToInsert)
-    //   })
-
-    //   // add clean up expiry to delete all autoschedule domains
-    //   await schedulePackageCleanup(user._id as string, new Date(packageExpiry))
-    // }
+        await addDomainToQueue(dataToInsert)
+      })
+    }
 
     // 6. Generate JWT tokens
     const tokens = generateTokens(user);

@@ -1,5 +1,6 @@
 import Package from "../models/Package";
 import User from "../models/User";
+import { removeJobsForPackageUsers, updateJobsForPackageUsers } from "../utils/utilityFN";
 
 // add a package
 export const addPackageController = async (req: any, res: any) => {
@@ -84,6 +85,8 @@ export const updatePackageController = async (req: any, res: any) => {
       return res.status(400).json({ success: false, message: 'No valid fields provided for update.' });
     }
 
+    const oldPackage = await Package.findById(packageId);
+
     // Update the package using only the filtered data
     const updatedPackage = await Package.findByIdAndUpdate(
       packageId,
@@ -95,16 +98,22 @@ export const updatePackageController = async (req: any, res: any) => {
       return res.status(404).json({ success: false, message: 'Package not found.' });
     }
 
-    // Business logic: check for status or executeInMs changes
-    if (updateData.status || updateData.intervalInMs) {
+    // ----- Business Logic -----
+    const statusChanged = updateData.status && updateData.status !== oldPackage.status;
+    const intervalChanged = updateData.intervalInMs && updateData.intervalInMs !== oldPackage.intervalInMs;
 
+    if (statusChanged) {
       if (updateData.status === "disabled") {
-        // delete cron job for this package 
+        // Case 1: Disabled → remove all user jobs
+        await removeJobsForPackageUsers(updatedPackage._id);
 
-      } else {
-        // add cron job for this package
-
+      } else if (updateData.status === "enabled") {
+        // Case 2: Enabled → reset jobs for users
+        await updateJobsForPackageUsers(packageId);
       }
+    } else if (intervalChanged && oldPackage.status === "enabled") {
+      // Case 2 (only interval change but still enabled)
+      await updateJobsForPackageUsers(packageId);
     }
 
     res.json({

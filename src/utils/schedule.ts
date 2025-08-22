@@ -9,12 +9,12 @@ export async function addDomainToQueue({
     userId,
     domain,
     type,
-    intervalInMs,
+    intervalInMs=10 * 60 * 1000,
     expires
 }: IAddDomainToQueueOptions): Promise<boolean> {
     try {
         const jobId = `auto-${type}-${userId}-${domain.url}`;
-        const repeatInterval = intervalInMs ? intervalInMs : 10 * 60 * 1000;
+        // const repeatInterval = intervalInMs ? intervalInMs : ;
         await autoCronQueue.add(
             'auto-execute',
             { userId, domain, type },
@@ -23,7 +23,7 @@ export async function addDomainToQueue({
                 removeOnComplete: true,
                 removeOnFail: true,
                 repeat: {
-                    every: repeatInterval,
+                    every: intervalInMs,
                     endDate:expires
                 },
             }

@@ -9,8 +9,6 @@ export async function initializeAutoScheduler() {
 
   // load admins manual domains
   try {
-
-    console.log("executed")
     const admins = await User.find({
       status: 'enabled',
       role: 'admin',
@@ -38,6 +36,8 @@ export async function initializeAutoScheduler() {
           type: "manual",
           intervalInMs: domain?.executeInMs
         }
+
+         console.log(dataToInsert, ' data to insert from initilizer')
         await addDomainToQueue(dataToInsert)
       }
     }
@@ -67,7 +67,6 @@ export async function initializeAutoScheduler() {
     }
 
     for (const user of users) {
-      console.log(user, ' user from initial schedular')
       const added = await addUserDomainsToTaskQueue(user);
       if (!added) {
         console.log("Error occured adding domain to task queue")
