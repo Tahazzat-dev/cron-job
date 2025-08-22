@@ -69,9 +69,25 @@ export const updatePackageController = async (req: any, res: any) => {
       return res.status(400).json({ success: false, message: 'Package ID is required.' });
     }
 
+    // Define the list of allowed fields
+    const allowedFields = ['name', 'price', 'validity', 'intervalInMs', 'manualCronLimit', 'status'];
+
+    // Create a new object with only the allowed fields
+    const updateData: { [key: string]: any } = {};
+    for (const field of allowedFields) {
+      if (updateFields[field] !== undefined) {
+        updateData[field] = updateFields[field];
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid fields provided for update.' });
+    }
+
+    // Update the package using only the filtered data
     const updatedPackage = await Package.findByIdAndUpdate(
       packageId,
-      updateFields,
+      updateData,
       { new: true, runValidators: true }
     );
 
@@ -79,13 +95,24 @@ export const updatePackageController = async (req: any, res: any) => {
       return res.status(404).json({ success: false, message: 'Package not found.' });
     }
 
+    // Business logic: check for status or executeInMs changes
+    if (updateData.status || updateData.intervalInMs) {
+
+      if (updateData.status === "disabled") {
+        // delete cron job for this package 
+
+      } else {
+        // add cron job for this package
+
+      }
+    }
+
     res.json({
       success: true,
       message: 'Package updated successfully.',
       data: updatedPackage,
     });
-  } catch (error:any) {
-
+  } catch (error: any) {
     // Check if the error is a Mongoose validation error
     if (error.name === 'ValidationError') {
       const errors: { [key: string]: string } = {};
