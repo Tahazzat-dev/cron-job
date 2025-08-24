@@ -170,7 +170,7 @@ export const updateUserController = async (req: any, res: any) => {
             }
         }
 
-
+        return res.json({ message: 'User updated successfully', user });
     } catch (err) {
         console.error('Error updating user:', err);
         return res.status(500).json({ message: 'Server error' });
@@ -356,14 +356,21 @@ export const updateManualCronController = async (req: any, res: any) => {
         const { status, executeInMs } = req.body;
 
         // Validation
-        if (!status && !executeInMs) {
+        if (status === undefined && executeInMs === undefined) {
             return res.status(400).json({
                 success: false,
                 message: "At least one of 'status' or 'executeInMs' must be provided",
             });
         }
 
-        if (status && !["enabled", "disabled"].includes(status)) {
+        if (executeInMs !== undefined) {
+            if (executeInMs < 3000 || !Number.isFinite(executeInMs)) {
+                return res.status(400).json({ success: false, message: "Invalid executeInMs" });
+            }
+        }
+
+
+        if (status !== undefined && !["enabled", "disabled"].includes(status)) {
             return res
                 .status(400)
                 .json({ success: false, message: "Status must be either enabled or disabled" });
@@ -391,25 +398,37 @@ export const updateManualCronController = async (req: any, res: any) => {
                 .json({ success: false, message: "Manual domain not found" });
         }
 
+        // nothing changes at all
         if (status === domainToUpdate?.status && executeInMs === domainToUpdate?.executeInMs) {
-            return res
-                .status(400)
-                .json({ success: false, message: "Noting to update" });
+            return res.status(400).json({ success: false, message: "Nothing to update" });
+        }
+
+        // status given, but identical to existing
+        if (status !== undefined && status === domainToUpdate?.status && executeInMs === undefined) {
+            return res.status(400).json({ success: false, message: "Status is already the same" });
+        }
+
+        // executeInMs given, but identical to existing
+        if (executeInMs !== undefined && executeInMs === domainToUpdate?.executeInMs && status === undefined) {
+            return res.status(400).json({ success: false, message: "Execution interval is already the same" });
         }
 
         // Update fields
-        if (status) domainToUpdate.status = status;
-        if (executeInMs) domainToUpdate.executeInMs = executeInMs;
+        if (status !== undefined && status !== domainToUpdate?.status) {
+            domainToUpdate.status = status;
+        }
+        if (executeInMs !== undefined && executeInMs !== domainToUpdate?.executeInMs) {
+            domainToUpdate.executeInMs = executeInMs;
+        }
 
-        // Queue handling
-        if (status === "disabled") {
-            // Remove job
-            await removeDomainFromQueue({
-                userId: admin._id.toString(),
-                domainUrl: domainToUpdate.url,
-                type: "manual",
-            });
-        } else {
+        // Remove job
+        await removeDomainFromQueue({
+            userId: admin._id.toString(),
+            domainUrl: domainToUpdate.url,
+            type: "manual",
+        });
+
+        if (domainToUpdate?.status === "enabled") {
             // Add / update job
             const dataToInsert: IAddDomainToQueueOptions = {
                 userId: admin._id.toString(),
@@ -427,6 +446,7 @@ export const updateManualCronController = async (req: any, res: any) => {
 
         // Save user updates
         await admin.save();
+
 
         return res.status(200).json({
             success: true,

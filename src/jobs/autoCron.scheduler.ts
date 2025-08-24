@@ -1,11 +1,14 @@
+import getRedisInstance from '../config/redis';
 import User from '../models/User';
 import { autoCronQueue, packageCleanupQueue } from '../queues/autoCron.queue';
 import { IAddDomainToQueueOptions, TManualDomain } from '../types/types';
 import { addDomainToQueue } from '../utils/schedule';
 import { addUserDomainsToTaskQueue } from '../utils/utilityFN';
+const redis = getRedisInstance();
 
 export async function initializeAutoScheduler() {
   await clearAllRepeatableJobs()
+  await clearAllRedisLogs()
 
   // load admins manual domains
   try {
@@ -37,7 +40,7 @@ export async function initializeAutoScheduler() {
           intervalInMs: domain?.executeInMs
         }
 
-         console.log(dataToInsert, ' data to insert from initilizer')
+        console.log(dataToInsert, ' data to insert from initilizer')
         await addDomainToQueue(dataToInsert)
       }
     }
@@ -97,4 +100,12 @@ export async function clearAllRepeatableJobs() {
     await job.remove();
   }
   console.log(`[${new Date().toISOString()}] Cleared ${cleanupJobs.length} delayed cleanup jobs from packageCleanupQueue`);
+}
+
+export async function clearAllRedisLogs() {
+  const keys = await redis.keys('cronlogs:*');
+
+  for (const key of keys) {
+    await redis.del(key);
+  }
 }

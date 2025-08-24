@@ -1,10 +1,12 @@
-import { Schema, model, models, Document } from 'mongoose';
+import { Schema, model, models, Types } from 'mongoose';
 
-export interface ICronLog extends Document {
-  userId: Schema.Types.ObjectId;
+export interface ICronLog {
+  userId: Types.ObjectId;
   domain: string;
   status?: number;
   responseTime?: number;
+  message:string;
+  timestamp:string;
   domainType: 'default' | 'manual';
 }
 
@@ -14,6 +16,8 @@ const CronLogSchema = new Schema<ICronLog>(
     domain: { type: String, required: true },
     status: { type: Number },
     responseTime: { type: Number }, // in ms
+    timestamp: { type: String, required:true },
+    message: { type: String, required:true },
     domainType: {
       type: String,
       enum: ['default', 'manual'],

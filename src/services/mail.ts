@@ -3,7 +3,7 @@ import transporter from './transporter';
 
  export const sendOtpEmail = async (to: string, username:string="", otp: string, mailType:'login'|'register'="login") => {
   const info = await transporter.sendMail({
-    from: `"FastCronJob" <${process.env.SMTP_USER}>`,
+    from: `"Expresscronjob" <${process.env.SMTP_USER}>`,
     to,
     subject: mailType==="login"?'Login OTP':'Register OTP',
     html: generateOtpMailTemplate(otp,username,mailType),
@@ -13,7 +13,7 @@ import transporter from './transporter';
 
 export const sendResetEmail = async (to: string, resetLink:string,) => {
   const info = await transporter.sendMail({
-    from: `"FastCronJob" <${process.env.SMTP_USER}>`,
+    from: `"Expresscronjob" <${process.env.SMTP_USER}>`,
     to,
     subject: 'Password Reset Request',
     html:generatePasswordResetMailTemplate(resetLink),

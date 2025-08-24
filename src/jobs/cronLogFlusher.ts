@@ -12,22 +12,19 @@ init()
 
 
 export async function flushLogsToMongo() {
-  return;
   const keys = await redis.keys('cronlogs:*');
 
   for (const key of keys) {
-    const userId = key.split(':')[1];
+    // const userId = key.split(':')[1];
     const logs = await redis.lrange(key, 0, -1);
-    console.log(logs, ' logs from flushedLogs')
     if (logs.length > 0) {
       const parsedLogs = logs.map(l => JSON.parse(l));
       // Save to MongoDB
-      // await CronLog.insertMany(parsedLogs);
+      await CronLog.insertMany(parsedLogs);
 
       // Clear Redis after persisting
       await redis.del(key);
     }
   }
-
   console.log(`[Batch Flush] Flushed ${keys.length} users' logs`);
 }

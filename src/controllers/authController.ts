@@ -11,7 +11,6 @@ import { generateOtp, setRefreshCookie } from "../utils/utilityFN";
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { addDomainToQueue } from "../utils/schedule";
-import { schedulePackageCleanup } from "../jobs/schedulePackageCleanup.scheduler";
 
 export const registerController = async (req: any, res: any) => {
   try {
@@ -319,6 +318,15 @@ export const verifyLoginOTPController = async (req: any, res: any) => {
     await OtpStore.deleteOne({ email });
 
     const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(403).json({ error: true, message: 'Account not found.' });
+    }
+
+    if (user.status !== 'enabled') {
+      return res.status(403).json({ error: true, message: 'Your account is not enabled. Please contact support.' });
+    }
+
     const tokens = generateTokens(user);
     setRefreshCookie(res, tokens.refreshToken);
 

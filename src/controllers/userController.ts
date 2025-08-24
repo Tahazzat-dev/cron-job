@@ -169,7 +169,7 @@ export const addDomainController = async (req: any, res: any) => {
     const insertedDomain = updatedUser?.manualDomains[0];
 
     // add the manual domain in the task queue to execute 
-    if (insertedDomain) {
+    if (insertedDomain && updatedUser.status === "enabled") {
       const dataToInsert: IAddDomainToQueueOptions = {
         userId,
         domain: {
@@ -241,7 +241,7 @@ export const removeDomainsController = async (req: any, res: any) => {
 export const removeDomainController = async (req: any, res: any) => {
   try {
     const { domainId } = req.params;
-
+    console.log(domainId, ' domain id')
     if (!domainId) {
       return res.status(400).json({ success: false, message: 'Domain ID is required' });
     }

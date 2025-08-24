@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 export interface UserPayload {
   _id: string;
   role: string;
-  email:string;
+  email: string;
 }
 export interface TokenPayload {
   id: string;
@@ -19,26 +19,26 @@ export interface TDomain {
   url: string;
 };
 export interface IDomain extends TDomain {
-  _id:string
+  _id: string
 };
 
 export interface TManualDomain extends TDomain {
-  executeInMs?: number; 
-  title:string;
+  executeInMs?: number;
+  title: string;
 }
 export interface IManualDomain extends TDomain {
-  executeInMs?: number; 
-  _id:string;
+  executeInMs?: number;
+  _id: string;
 }
 
 export interface IUserDataToInsert {
-    name: string;
-    email:string;
-    password: string;
-    username: string;
-    status:"pending";
-    mobile: string;
-    domain: string;
+  name: string;
+  email: string;
+  password: string;
+  username: string;
+  status: "pending";
+  mobile: string;
+  domain: string;
 }
 
 
@@ -46,27 +46,27 @@ export interface IUserDataToInsert {
 type DomainType = 'default' | 'manual';
 
 type TDomainType = {
-    url: string;
-    _id: string;
-    status: string;
+  url: string;
+  _id: string;
+  status: string;
 }
 
 export interface IAddDomainToQueueOptions {
-    userId: string;
-    domain: TDomainType;
-    type: DomainType;
-    intervalInMs: number;
-    expires?:Date;
+  userId: string;
+  domain: TDomainType;
+  type: DomainType;
+  intervalInMs: number;
+  expires?: Date;
 }
 
 
 // BSCScan api token validation
 export interface ITransaction {
   userId: mongoose.Types.ObjectId;
-  status: "success"|"fail" | "pending";
+  status: "success" | "fail" | "pending";
   amount: number;
-  transactionHash:string;
-  packageId:mongoose.Types.ObjectId;
+  transactionHash: string;
+  packageId: mongoose.Types.ObjectId;
 }
 
 export interface TokenTransaction {
@@ -108,7 +108,9 @@ export interface IPayment {
   userId: mongoose.Types.ObjectId;
   amount: number;
   packageId: mongoose.Types.ObjectId;
-  processExpiresAt:Date;
+  processExpiresAt: Date;
 }
 
 
+// ===== job types from worker ===
+export type IJobType = { userId: string; domain: TDomain; type: DomainType }
