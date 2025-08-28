@@ -298,12 +298,18 @@ export const updateDomainStatusController = async (req: any, res: any) => {
     if (user?.manualDomains?.length) {
       const domain = user.manualDomains.find((d: any) => d._id.toString() === domainId);
       if (domain) {
+
+        if (domain.status === status) {
+          return res.status(400).json({ success: false, message: "Nothing to update. Previous and current status are same." });
+        }
+
         domain.status = status;
         updatedDomain = domain;
         updatedDomainType = "manual";
 
+        console.log(user, ' user details inside manual domain update')
+
         if (status === "enabled") {
-          // Add or update job
           const dataToInsert: IAddDomainToQueueOptions = {
             userId: user._id.toString(),
             domain: {
@@ -319,7 +325,7 @@ export const updateDomainStatusController = async (req: any, res: any) => {
         } else {
           // Remove job
           await removeDomainFromQueue({
-            userId: user._id?.toString(),
+            userId: user._id,
             domainUrl: domain.url,
             type: "manual",
           });
@@ -329,11 +335,22 @@ export const updateDomainStatusController = async (req: any, res: any) => {
 
     // --- Try default domains if not manual ---
     if (!updatedDomain && user?.defaultDomains?.length) {
+
       const domain = user.defaultDomains.find((d: any) => d._id.toString() === domainId);
+
       if (domain) {
+
+        if (domain.status === status) {
+          return res.status(400).json({ success: false, message: "Nothing to update. Previous and current status are same." });
+        }
+
+
         domain.status = status;
         updatedDomain = domain;
         updatedDomainType = "default";
+
+        console.log(user, 'user from updating default domain');
+        console.log(domain, ' default domain to udpate');
 
         if (status === "enabled") {
           const dataToInsert: IAddDomainToQueueOptions = {
@@ -344,14 +361,14 @@ export const updateDomainStatusController = async (req: any, res: any) => {
               status: domain.status,
             },
             type: "default",
-            intervalInMs: domain.executeInMs,
+            intervalInMs: domain.subscription?.intervalInMs || 5000,
             expires: calculateExpirationDate(user?.subscription?.validity),
           };
 
           await addDomainToQueue(dataToInsert);
         } else {
           await removeDomainFromQueue({
-            userId: user._id?.toString(),
+            userId: user._id,
             domainUrl: domain.url,
             type: "default",
           });
