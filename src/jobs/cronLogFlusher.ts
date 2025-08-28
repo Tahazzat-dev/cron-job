@@ -10,7 +10,6 @@ const init = async () => {
 }
 init()
 
-
 export async function flushLogsToMongo() {
   const keys = await redis.keys('cronlogs:*');
 
@@ -19,6 +18,7 @@ export async function flushLogsToMongo() {
     const logs = await redis.lrange(key, 0, -1);
     if (logs.length > 0) {
       const parsedLogs = logs.map(l => JSON.parse(l));
+      console.log(parsedLogs,' parsed logs')
       // Save to MongoDB
       await CronLog.insertMany(parsedLogs);
 

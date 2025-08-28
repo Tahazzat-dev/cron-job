@@ -61,7 +61,6 @@ export const autoCronWorker = new Worker(
     }
 
     // Save log to Redis (last 100 logs)
-    console.log(log, ' log before push')
     await redis.lpush(logKey, JSON.stringify(log));
     await redis.ltrim(logKey, 0, 99);
   },

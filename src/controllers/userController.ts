@@ -124,7 +124,8 @@ export const addDomainController = async (req: any, res: any) => {
     const allUrls = new Set([...defaultUrls, ...manualUrls]);
 
     const urlAfterRoot = extractPathAfterRootDomain(url);
-    const fullUrl = sanitized + urlAfterRoot
+    const fullUrl = sanitized + urlAfterRoot;
+    console.log(fullUrl, ' full url')
 
     if (allUrls.has(fullUrl)) {
       return res.status(409).json({
@@ -240,16 +241,16 @@ export const removeDomainsController = async (req: any, res: any) => {
 
 export const removeDomainController = async (req: any, res: any) => {
   try {
-    const { domainId } = req.params;
-    console.log(domainId, ' domain id')
+    const { domainId } = await req.params;
+
     if (!domainId) {
       return res.status(400).json({ success: false, message: 'Domain ID is required' });
     }
 
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user.id);
 
     if (!user) {
-      return res.status(403).json({ success: false, message: 'Access denied' });
+      return res.status(403).json({ success: false, message: 'Access denied. No user found' });
     }
 
     const originalLength = user.manualDomains?.length || 0;
@@ -281,66 +282,85 @@ export const removeDomainController = async (req: any, res: any) => {
 export const updateDomainStatusController = async (req: any, res: any) => {
   try {
     const userId = req.user.id;
-    const { domainId, status }: { domainId: string; status: 'enabled' | 'disabled' } = req.body;
+    const { domainId, status }: { domainId: string; status: "enabled" | "disabled" } = req.body;
 
-    if (!domainId || !['enabled', 'disabled'].includes(status)) {
-      return res.status(400).json({ error: true, message: 'Invalid domain ID or status' });
+    if (!domainId || !["enabled", "disabled"].includes(status)) {
+      return res.status(400).json({ error: true, message: "Invalid domain ID or status" });
     }
 
-    const user: any = await User.findById(userId).populate('subscription').lean();
-    if (!user) return res.status(404).json({ error: true, message: 'User not found' });
+    const user: any = await User.findById(userId).populate("subscription"); // removed lean()
+    if (!user) return res.status(404).json({ error: true, message: "User not found" });
 
-    let updatedDomainType: 'manual' | 'default' | null = null;
-    let updatedDomain = null;
+    let updatedDomainType: "manual" | "default" | null = null;
+    let updatedDomain: any = null;
 
-    // Try updating manualDomains
-    if (user?.manualDomains) {
+    // --- Try manual domains ---
+    if (user?.manualDomains?.length) {
       const domain = user.manualDomains.find((d: any) => d._id.toString() === domainId);
       if (domain) {
         domain.status = status;
         updatedDomain = domain;
-        updatedDomainType = 'manual';
+        updatedDomainType = "manual";
+
+        if (status === "enabled") {
+          // Add or update job
+          const dataToInsert: IAddDomainToQueueOptions = {
+            userId: user._id.toString(),
+            domain: {
+              url: domain.url,
+              _id: domain._id,
+              status: domain.status,
+            },
+            type: "manual",
+            intervalInMs: domain.executeInMs,
+            expires: calculateExpirationDate(user?.subscription?.validity),
+          };
+          await addDomainToQueue(dataToInsert);
+        } else {
+          // Remove job
+          await removeDomainFromQueue({
+            userId: user._id?.toString(),
+            domainUrl: domain.url,
+            type: "manual",
+          });
+        }
       }
-
-      // add/remove domain from the queue based on the status
-      if (status === "enabled") {
-        // Remove job
-        await removeDomainFromQueue({
-          userId: user._id?.toString(),
-          domainUrl: domain?.url,
-          type: "manual",
-        });
-      } else {
-        // Add / update job
-        const dataToInsert: IAddDomainToQueueOptions = {
-          userId: user._id.toString(),
-          domain: {
-            url: domain.url,
-            _id: domain._id,
-            status: domain.status,
-          },
-          type: "manual",
-          intervalInMs: domain.executeInMs,
-          expires: calculateExpirationDate(user?.subscription?.validity)
-        };
-
-        await addDomainToQueue(dataToInsert);
-      }
-
     }
 
-    // Try updating defaultDomains if not found in manualDomains
-    if (!updatedDomain && user.defaultDomains) {
+    // --- Try default domains if not manual ---
+    if (!updatedDomain && user?.defaultDomains?.length) {
       const domain = user.defaultDomains.find((d: any) => d._id.toString() === domainId);
       if (domain) {
         domain.status = status;
         updatedDomain = domain;
-        updatedDomainType = 'default';
+        updatedDomainType = "default";
+
+        if (status === "enabled") {
+          const dataToInsert: IAddDomainToQueueOptions = {
+            userId: user._id.toString(),
+            domain: {
+              url: domain.url,
+              _id: domain._id,
+              status: domain.status,
+            },
+            type: "default",
+            intervalInMs: domain.executeInMs,
+            expires: calculateExpirationDate(user?.subscription?.validity),
+          };
+
+          await addDomainToQueue(dataToInsert);
+        } else {
+          await removeDomainFromQueue({
+            userId: user._id?.toString(),
+            domainUrl: domain.url,
+            type: "default",
+          });
+        }
       }
     }
 
     if (!updatedDomain) {
-      return res.status(404).json({ error: true, message: 'Domain not found in manual or default list' });
+      return res.status(404).json({ error: true, message: "Domain not found in manual or default list" });
     }
 
     await user.save();
@@ -352,15 +372,15 @@ export const updateDomainStatusController = async (req: any, res: any) => {
       domain: {
         id: domainId,
         url: updatedDomain.url,
-        status: updatedDomain.status
-      }
+        status: updatedDomain.status,
+      },
     });
-
   } catch (err) {
-    console.error('[Update Domain Status]', err);
-    res.status(500).json({ error: true, message: 'Server error' });
+    console.error("[Update Domain Status]", err);
+    res.status(500).json({ error: true, message: "Server error" });
   }
 };
+
 
 
 const USDT_CONTRACT = '0x55d398326f99059fF775485246999027B3197955'; // BSC USDT

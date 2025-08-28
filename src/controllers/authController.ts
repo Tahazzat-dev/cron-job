@@ -230,6 +230,10 @@ export const loginController = async (req: any, res: any) => {
       return res.status(401).json({ error: true, message: "Invalid credentials" });
     }
 
+    if (user && user.status !== "enabled") {
+      return res.status(401).json({ error: true, message: "You account has been disabled. Please contact support" });
+    }
+
     const existing = await OtpStore.findOne({ email });
 
     try {
