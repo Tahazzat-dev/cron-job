@@ -61,7 +61,6 @@ export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => 
     const defaultDomains = user.defaultDomains?.filter((d: TDomain) => d.status === 'enabled') || [];
     const manualDomains = user.manualDomains?.filter((d: TManualDomain) => d.status === 'enabled') || [];
     const userId = _id as string;
-
     // add queue for default domains
     for (const domain of defaultDomains) {
 
@@ -79,7 +78,8 @@ export const addUserDomainsToTaskQueue = async (user: any): Promise<boolean> => 
         intervalInMs: subscription.intervalInMs,
         expires: new Date(user.packageExpiresAt),
       }
-
+      // first remove if already exists
+      await removeDomainFromQueue({ userId, domainUrl: domain.url, type: "default" });
 
       await addDomainToQueue(dataToInsert)
     }
@@ -197,6 +197,8 @@ export const cleanAllPreviousTaskFromQueue = async (userId: string): Promise<boo
 
 
 export const updateJobsForPackageUsers = async (packageId: string) => {
+
+  console.log(packageId, ' packageid')
   try {
     const oneMinuteFromNow = new Date(Date.now() + 60 * 1000)
     const users = await User.find({
@@ -219,6 +221,7 @@ export const updateJobsForPackageUsers = async (packageId: string) => {
     }
 
     for (const user of users) {
+      console.log(user,  ' user from updatePakcaege');
       const added = await addUserDomainsToTaskQueue(user);
       if (!added) {
         console.log("Error occured adding domain to task queue")

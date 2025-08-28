@@ -398,6 +398,82 @@ export const updateDomainStatusController = async (req: any, res: any) => {
   }
 };
 
+export const initiateSubscribePackageController = async (req: any, res: any) => {
+  try {
+    const userId = req.user?.id;
+    const { packageId } = req.body;
+
+    if (!packageId) {
+      return res.status(400).json({
+        error: true,
+        message: 'packageId is required',
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User not found for user id: ${userId}`,
+      });
+    }
+
+    const packageToSubscribe = await Package.findOne({
+      _id: packageId,
+      status: 'enabled',
+    });
+
+    if (!packageToSubscribe) {
+      return res.status(404).json({
+        success: false,
+        message: 'Subscription package not found',
+      });
+    }
+
+
+    const processExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // expires in 10 minutes
+
+    const paymentData: IPayment = {
+      amount: packageToSubscribe.price,
+      packageId: packageToSubscribe.packageId,
+      processExpiresAt,
+      userId,
+    };
+
+    const payment = await Payment.findOneAndUpdate(
+      { userId },
+      {
+        userId,
+        packageId: packageToSubscribe.packageId,
+        amount: packageToSubscribe.price,
+        processExpiresAt,
+      },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+
+    return res.status(201).json({
+      success: true,
+      message: 'Payment initialized successfully',
+      paymentId: payment._id,
+      expiresAt: processExpiresAt,
+      amount: paymentData.amount,
+    });
+
+  } catch (err) {
+    console.error('[initiateSubscribePackageController]', err);
+    return res.status(500).json({
+      error: true,
+      message: 'Internal server error',
+    });
+  }
+};
+
+
 
 
 const USDT_CONTRACT = '0x55d398326f99059fF775485246999027B3197955'; // BSC USDT
@@ -405,6 +481,14 @@ export const subscribePackageController = async (req: any, res: any) => {
   try {
     const userId = req.user?.id;
     const { amount, packageId, transactionHash } = req.body;
+
+     if (!amount || !packageId || !transactionHash) {
+      return res.status(400).json({
+        error: true,
+        message: 'amount, packageId, and transactionHash are required',
+      });
+    }
+
 
     // Step-1 : check if the transaction already exists or not.
     const isTransactionExist = await Transaction.findOne({ transactionHash })
@@ -421,19 +505,10 @@ export const subscribePackageController = async (req: any, res: any) => {
       return res.status(500).json({ error: true, message: 'Server misconfiguration' });
     }
 
-
-    if (!amount || !packageId || !transactionHash) {
-      return res.status(400).json({
-        error: true,
-        message: 'amount, packageId, and transactionHash are required',
-      });
-    }
-
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: `User not found for user id: ${userId}` });
     }
-
 
     // check if the package is exist in based on the packageId and price.
     const packageToSubscribe = await Package.findOne({
@@ -477,8 +552,7 @@ export const subscribePackageController = async (req: any, res: any) => {
     if (isTimestampOlderThan24Hours(parseInt(matchedTx.timeStamp))) return res.status(410).json({ success: false, message: "Payment time expired. You have to verifiy payment within 24 hours of your payment" })
 
     // assing the package to the user and add domains to the task queue.
-
-
+    
     // Proceed with package activation here (e.g. create subscription, activate access)
     return res.status(200).json({
       success: true,
@@ -489,78 +563,5 @@ export const subscribePackageController = async (req: any, res: any) => {
   } catch (err) {
     console.error('[subscribePackageController]', err);
     return res.status(500).json({ error: true, message: 'Server error' });
-  }
-};
-
-
-export const initiateSubscribePackageController = async (req: any, res: any) => {
-  try {
-    const userId = req.user?.id;
-    const { packageId } = req.body;
-
-    if (!packageId) {
-      return res.status(400).json({
-        error: true,
-        message: 'packageId is required',
-      });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: `User not found for user id: ${userId}`,
-      });
-    }
-
-    const packageToSubscribe = await Package.findOne({
-      _id: packageId,
-      status: 'enabled',
-    });
-
-    if (!packageToSubscribe) {
-      return res.status(404).json({
-        success: false,
-        message: 'Subscription package not found',
-      });
-    }
-
-    const processExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    const paymentData: IPayment = {
-      amount: packageToSubscribe.price,
-      packageId: packageToSubscribe.packageId,
-      processExpiresAt,
-      userId,
-    };
-
-    const payment = await Payment.findOneAndUpdate(
-      { userId },
-      {
-        userId,
-        packageId: packageToSubscribe.packageId,
-        amount: packageToSubscribe.price,
-        processExpiresAt,
-      },
-      {
-        upsert: true,
-        new: true,
-        setDefaultsOnInsert: true,
-      }
-    );
-    return res.status(201).json({
-      success: true,
-      message: 'Payment initialized successfully',
-      paymentId: payment._id,
-      expiresAt: processExpiresAt,
-      amount: paymentData.amount,
-    });
-
-  } catch (err) {
-    console.error('[initiateSubscribePackageController]', err);
-    return res.status(500).json({
-      error: true,
-      message: 'Internal server error',
-    });
   }
 };

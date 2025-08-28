@@ -537,24 +537,26 @@ export const assignPackageToUserController = async (req: any, res: any) => {
         }
 
         // Find the user and update their subscription.
-        const user = await User.findById(userId);
+        const user = await User.findById(userId).populate("subscription");
 
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found.' });
         }
 
+            // return res.status(404).json({ success: false, user, existPackage, message: 'User not found.' });
+
         // If the user has this package, and it expires in more than 1 day, block the update.
         const now = new Date();
         const oneDayInMs = 24 * 60 * 60 * 1000;
 
-        if (
-            user.subscription &&
-            user.subscription.toString() === packageId.toString() &&
-            user.packageExpiresAt &&
-            (user.packageExpiresAt.getTime() - now.getTime()) > oneDayInMs
-        ) {
-            return res.status(400).json({ success: false, message: 'User already has this package, and it is still valid.' });
-        }
+        // if (
+        //     user.subscription &&
+        //     user.subscription?._id.toString() === packageId.toString() &&
+        //     user.packageExpiresAt &&
+        //     (user.packageExpiresAt.getTime() - now.getTime()) > oneDayInMs
+        // ) {
+        //     return res.status(400).json({ success: false, message: 'User already has this package, and it is still valid.' });
+        // }
 
 
         // Assign the new package to the user.

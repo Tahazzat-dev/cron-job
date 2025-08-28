@@ -21,8 +21,8 @@ router.delete('/cron-log', clearUserCronHistoryController);
 router.get('/transactions', getTransactionHistoryController);
 
 // subscription 
-router.get('/subscribe-package', subscribePackageController);
-router.get('/initiate-subscribe-package', initiateSubscribePackageController);
+router.post('/initiate-subscribe-package', initiateSubscribePackageController);
+router.post('/subscribe-package', subscribePackageController);
  
 
 export default router;
